@@ -5,3 +5,6 @@ dist/
 !.env.example
 *.log
 .DS_Store
+
+# 本地 pnpm 缓存
+.pnpm-store/

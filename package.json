@@ -4,8 +4,22 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "tsx src/main.ts",
-    "typecheck": "tsc --noEmit"
+    "dev": "tsc-watch --compiler \"$PWD/node_modules/typescript/bin/tsc\" --project tsconfig.build.json --onSuccess \"pnpm start\"",
+    "build": "pnpm clean && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json --resolve-full-paths --resolve-full-extension .js",
+    "start": "tsc-alias -p tsconfig.build.json --resolve-full-paths --resolve-full-extension .js && node --env-file-if-exists=.env dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "db:up": "docker compose up -d --wait mysql",
+    "db:down": "docker compose stop mysql",
+    "db:status": "docker compose ps",
+    "db:logs": "docker compose logs --tail 100 -f mysql",
+    "docker:up": "docker compose up -d --build --wait --wait-timeout 180",
+    "docker:down": "docker compose down",
+    "docker:status": "docker compose ps",
+    "docker:logs": "docker compose logs --tail 100 -f api",
+    "db:generate": "pnpm build && node --env-file-if-exists=.env node_modules/typeorm/cli.js migration:generate src/database/migrations/SchemaChange -d dist/database/data-source.js",
+    "db:migrations": "pnpm build && node --env-file-if-exists=.env node_modules/typeorm/cli.js migration:show -d dist/database/data-source.js",
+    "db:migrate": "pnpm build && node --env-file-if-exists=.env node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\""
   },
   "keywords": [],
   "author": "",
@@ -21,6 +35,18 @@
   "devDependencies": {
     "@types/node": "^26.6.6",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "tsc-alias": "^1.8.16",
+    "tsc-watch": "^6.2.1"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "@nestjs/typeorm": "^11.0.0",
+    "typeorm": "^0.3.28",
+    "mysql2": "^3.15.0"
   }
 }
