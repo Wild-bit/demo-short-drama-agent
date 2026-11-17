@@ -5,11 +5,27 @@ export type ToolCall = {
   name: string;
   arguments: string;
 };
-
-export type TextMessage = {
-  role: "system" | "user" | "assistant";
+export type TextInputMessage = {
+  role: "system" | "user";
   content: string;
 };
+
+export type TextAssistantMessage = {
+  role: "assistant";
+  content: string;
+  toolCalls?: ToolCall[];
+};
+
+export type TextToolResultMessage = {
+  role: "tool";
+  content: string;
+  toolCallId: string;
+};
+
+export type TextMessage =
+  | TextInputMessage
+  | TextAssistantMessage
+  | TextToolResultMessage;
 
 export type TextGenerationRequest = {
   messages: TextMessage[];

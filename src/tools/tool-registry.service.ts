@@ -7,7 +7,11 @@ export class ToolRegistryService {
   private readonly tools = new Map<string, AgentTool>();
   constructor(@Inject(AGENT_TOOLS) tools: AgentTool[]) {
     for (const tool of tools) {
-      this.tools.set(tool.definition.name, tool);
+      const name = tool.definition.name;
+      if (this.tools.has(name)) {
+        throw new Error(`重复工具名：${name}`);
+      }
+      this.tools.set(name, tool);
     }
   }
 

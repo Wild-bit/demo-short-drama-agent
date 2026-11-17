@@ -16,6 +16,7 @@
 - [第四课准备：Docker MySQL 与 TypeORM](./04b-docker-mysql.md)：容器数据库、连接配置、健康检查与数据保留。
 - [第四课准备：NestJS 与 MySQL 一起容器化](./04c-containerized-api.md)：当前推荐启动方式，API 映射到本机 3100。
 - [第四课：工具定义与执行](./04-tool-definition-and-execution.md)：工具声明、模型调用请求、注册与真实执行，先使用用户素材库搜索工具。
+- [第五课：手写 Agent Loop](./05-agent-loop.md)：当前先理解工具调用与结果消息、调用 ID 配对，再逐步实现反馈循环。
 - [项目 README](../README.md)：当前项目状态。
 - [Gateway 路由讨论记录](./gateway-routing-discussion.md)：提前讨论的选择规则与职责分工，尚未进入实现；评测 Agent 列为后期扩展。
 

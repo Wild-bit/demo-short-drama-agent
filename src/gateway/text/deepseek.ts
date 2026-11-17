@@ -1,4 +1,8 @@
-import type { TextGenerationRequest, TextGenerationResult } from "./types";
+import type {
+  TextGenerationRequest,
+  TextGenerationResult,
+  TextMessage,
+} from "./types";
 import { loadDeepSeekConfig } from "./deepseek-config";
 import { createHttpClient } from "@/request/http-client";
 
@@ -19,6 +23,36 @@ type DeepSeekResponse = {
   }[];
 };
 
+function toDeepSeekMessage(message: TextMessage) {
+  if (message.role === "tool") {
+    return {
+      role: message.role,
+      content: message.content,
+      tool_call_id: message.toolCallId,
+    };
+  }
+
+  if (message.role === "assistant") {
+    return {
+      role: message.role,
+      content: message.content,
+      tool_calls: message.toolCalls?.map((call) => ({
+        id: call.id,
+        type: "function",
+        function: {
+          name: call.name,
+          arguments: call.arguments,
+        },
+      })),
+    };
+  }
+
+  return {
+    role: message.role,
+    content: message.content,
+  };
+}
+
 export async function generateDeepSeekText(
   request: TextGenerationRequest,
 ): Promise<TextGenerationResult> {
@@ -34,7 +68,7 @@ export async function generateDeepSeekText(
     "/chat/completions",
     {
       model,
-      messages: request.messages,
+      messages: request.messages.map(toDeepSeekMessage),
       stream: false,
       max_tokens: 1024,
       thinking: { type: "disabled" },
