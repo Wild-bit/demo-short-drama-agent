@@ -1,4 +1,5 @@
 import type { ToolCall } from "@/gateway/text/types";
+import type { TextMessage } from "@/gateway/text/types";
 
 export type ToolExecutionRecord = {
   toolCallId: string;
@@ -13,3 +14,10 @@ export type AgentRunResult = {
   toolCalls: ToolCall[];
   toolResults: ToolExecutionRecord[];
 };
+
+export type SessionMessagePayload =
+  | Exclude<TextMessage, { role: "system" | "user" }>
+  | {
+      role: "user";
+      content: string;
+    };

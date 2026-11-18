@@ -43,7 +43,7 @@ export class SearchUserAssetsTool implements AgentTool {
     }
 
     const assets = await this.assetsService.searchAssets(
-      context.ownerId,
+      context.userId,
       input.query,
     );
 

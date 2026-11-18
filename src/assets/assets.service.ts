@@ -9,14 +9,14 @@ export class AssetsService {
     @InjectRepository(Asset)
     private readonly assetRepository: Repository<Asset>,
   ) {}
-  async searchAssets(ownerId: string, query: string): Promise<Asset[]> {
+  async searchAssets(userId: string, query: string): Promise<Asset[]> {
     const keyword = query.trim();
     if (!keyword) {
       return [];
     }
     let result = await this.assetRepository
       .createQueryBuilder("asset")
-      .where("asset.ownerId = :ownerId", { ownerId })
+      .where("asset.userId = :userId", { userId })
       .andWhere(
         "(asset.name LIKE :keyword OR asset.description LIKE :keyword)",
         { keyword: `%${keyword}%` },

@@ -2,22 +2,21 @@ import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
-  CreateDateColumn,
-  UpdateDateColumn,
 } from "typeorm";
+import { TimestampEntity } from "@/database/entities/timestamp.entity";
 
 export type AssetType = "image" | "video";
 export type AssetSource = "upload" | "generated";
 
 @Entity("assets")
-export class Asset {
+export class Asset extends TimestampEntity {
   /** 资产唯一ID */
   @PrimaryGeneratedColumn("uuid")
   id: string;
 
-  /** 所属用户；演示阶段由服务端提供用户上下文。 */
-  @Column({ type: "varchar", length: 64 })
-  ownerId!: string;
+  /** 所属用户，由服务端认证结果确定。 */
+  @Column({ name: "user_id", type: "varchar", length: 64 })
+  userId!: string;
 
   /** 素材名称。 */
   @Column({ type: "varchar", length: 255 })
@@ -43,18 +42,4 @@ export class Asset {
   @Column({ type: "varchar", length: 1024 })
   objectKey!: string;
 
-  @CreateDateColumn({
-    type: "datetime",
-    precision: 3,
-    default: () => "CURRENT_TIMESTAMP(3)",
-  })
-  createdAt!: Date;
-
-  @UpdateDateColumn({
-    type: "datetime",
-    precision: 3,
-    default: () => "CURRENT_TIMESTAMP(3)",
-    onUpdate: "CURRENT_TIMESTAMP(3)",
-  })
-  updatedAt!: Date;
 }

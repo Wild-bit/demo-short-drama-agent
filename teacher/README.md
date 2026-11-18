@@ -12,11 +12,10 @@
 - [第一课讨论记录：从工具请求到执行闭环](./01-agent-harness-loop-from-tool-request-to-execution.md)：本次问答、理解校准，以及接下来的动手起点。
 - [第二课：从打印需求到第一次模型调用](./02-deepseek-first-call.md)：请求消息、响应字段、凭证配置与首次 DeepSeek 调用的验证目标。
 - [第三课：让模型回答变成可校验的剧本与分镜](./03-prompts-and-structured-storyboard.md)：提示词装配、业务结构、JSON 解析与运行时校验。
-- [第四课准备：NestJS 最小服务](./04a-nestjs-foundation.md)：框架结构、启动命令、健康检查与当前验证限制。
-- [第四课准备：Docker MySQL 与 TypeORM](./04b-docker-mysql.md)：容器数据库、连接配置、健康检查与数据保留。
-- [第四课准备：NestJS 与 MySQL 一起容器化](./04c-containerized-api.md)：当前推荐启动方式，API 映射到本机 3100。
-- [第四课：工具定义与执行](./04-tool-definition-and-execution.md)：工具声明、模型调用请求、注册与真实执行，先使用用户素材库搜索工具。
+- [第四课：工具定义与执行](./04-tool-definition-and-execution.md)：统一阅读入口，汇总 NestJS、Docker/MySQL、迁移、工具调用原理及验证状态；原准备文档作为详细记录按需查阅。
 - [第五课：手写 Agent Loop](./05-agent-loop.md)：当前先理解工具调用与结果消息、调用 ID 配对，再逐步实现反馈循环。
+- [第六课：会话、提示词装配与上下文管理](./06-context-management.md)：建立最小会话与跨请求历史，再学习上下文装配及规则和资料的边界。
+- [第七课：各家 Agent Harness 怎样处理上下文膨胀](./07-context-compaction.md)：对照 Multica、DeepSeek Harness、Codex、OpenCode 等公开实现，再动手做预算、压缩和历史回查。
 - [项目 README](../README.md)：当前项目状态。
 - [Gateway 路由讨论记录](./gateway-routing-discussion.md)：提前讨论的选择规则与职责分工，尚未进入实现；评测 Agent 列为后期扩展。
 

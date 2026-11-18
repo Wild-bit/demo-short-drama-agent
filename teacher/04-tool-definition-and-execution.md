@@ -2,6 +2,157 @@
 
 更新日期：2026-11-12。后端环境、资产查询和模型工具调用正常链路已验证；重复名称与未知工具拒绝验证通过，开始第五课的消息类型讲解。无结果和无效参数分支仍未完成运行验证。
 
+
+## 统一阅读指南与复习总结
+
+整理日期：2026-11-17。第四课同时补齐了后端基础设施和工具调用，因此曾拆成多份文档。本文件已合并基础设施配置、排障记录与工具原理，作为第四课唯一讲义。历史搭建过程可通过 Git 查阅。
+
+### 一、这节课最终做成了什么
+
+建立 NestJS HTTP 服务，连接 Docker MySQL，创建资产记录及查询服务，并把查询封装成模型可请求的工具。模型提出正式调用后，程序按名称找到实现、检查参数、执行数据库查询并返回真实结果。
+
+第四课的终点是“模型提出动作，程序执行”。工具结果回传模型并继续循环属于第五课。当前源码已经包含后续课程改动，因此重新运行现有接口会得到第五课的最终回答，不会重现第四课当时只执行一轮的返回。
+
+### 二、基础设施与各层职责
+
+| 层次 | 负责什么 | 主要位置 |
+|---|---|---|
+| NestJS 入口 | 启动应用、设置 /api 前缀、组织模块 | src/main.ts、src/app.module.ts |
+| Controller | 接收请求、检查 message、提供演示用户上下文 | src/harness/agent/agent.controller.ts |
+| AgentService | 请求模型、接收调用；第五课后扩展为循环 | src/harness/agent/agent.service.ts |
+| Gateway | 把内部消息与工具协议转换为 DeepSeek 请求和响应 | src/gateway/text/ |
+| 工具注册表 | 按名字提供声明、拒绝重复名和未知名、分发执行 | src/tools/tool-registry.service.ts |
+| 搜索工具 | 定义用途和参数，检查 query，调用资产服务 | src/tools/search-user-assets.tool.ts |
+| 资产服务 | 限定用户范围，按名称或描述执行关键词查询 | src/assets/assets.service.ts |
+| TypeORM/MySQL | 实体映射、Repository、连接池与数据持久化 | src/database/、src/assets/entities/ |
+| Docker Compose | 组织 API 与 MySQL、健康检查和数据卷 | compose.yaml |
+
+HTTP 健康检查只说明应用存活；数据库健康检查通过 SELECT 1 验证连接。两者均不能证明模型、COS 或素材文件可用。
+
+### 三、当前推荐启动与迁移命令
+
+先启动 Docker Desktop，在项目根目录运行：
+
+```bash
+pnpm docker:up
+curl http://localhost:3100/api/health
+curl http://localhost:3100/api/health/database
+```
+
+端口关系：本机访问 API 使用 3100，API 容器内部监听 3000；API 容器访问 MySQL 使用 mysql:3306，本机数据库客户端使用 127.0.0.1:3307（默认配置）。不要把宿主机映射端口用于容器间连接。
+
+```bash
+pnpm docker:status
+pnpm docker:logs
+pnpm docker:restart  # 只重启 API，也可以用 pnpm restart
+pnpm docker:down
+```
+
+普通停止保留数据库命名数据卷，不删除卷来重启服务。实体变更使用迁移，synchronize 保持关闭：
+
+```bash
+# 生成迁移，不会执行建表；先检查生成的 up/down
+docker compose exec api pnpm db:generate
+# 审查后执行迁移
+docker compose exec api pnpm db:migrate
+# 查看迁移状态
+docker compose exec api pnpm db:migrations
+```
+
+本机直接运行 Nest 是另一种开发方式，不要与容器启动流程混用；具体编译、别名改写和环境变量说明见下方基础设施配置。迁移应始终按当前课程变更审查，不直接执行历史讲义中的所有操作。
+
+### 四、一条完整的第四课调用路径
+
+```text
+用户：搜索墨墨
+→ Controller 接收需求，服务端提供 userId
+→ AgentService 向模型提供需求与工具声明
+→ 模型返回 search_user_assets 和 query 参数
+→ Gateway 转成内部 ToolCall
+→ 注册表查找工具
+→ 搜索工具检查参数
+→ AssetsService 按 userId 与关键词查询 MySQL
+→ 返回真实候选元数据
+```
+
+模型不知道数据库中有哪些记录，也看不到工具函数源码。名称、描述、参数 Schema 和系统规则帮助它判断何时调用；程序真正负责执行。
+
+### 五、最容易混淆的概念
+
+- 工具声明是说明书，工具实现是代码，正式工具调用是模型发出的结构化请求。普通文本“我去搜索”不会自动执行。
+- JSON 回答属于 content，正式工具请求属于工具调用字段，不能混为一谈。
+- 参数 Schema 帮助模型生成参数，运行时仍需检查输入。当前搜索工具只接受一个非空 query，不允许任意额外字段。
+- 工具注册表处理通用分发，不理解 query 等业务参数；具体工具负责自己的参数检查。
+- Map 的键唯一不代表重复注册会报错，直接 set 会覆盖旧值，所以必须显式检查。
+- userId 来自可信执行上下文，不让模型自由指定。当前固定演示用户不等于已经实现登录鉴权。
+- 当前查询按名称、描述匹配，返回标签但不按标签检索，不是 Embedding 或视觉识别。
+- 资产元数据在 MySQL，文件计划放 COS；查到记录不代表真实文件可读。
+
+### 六、验证结论与课程边界
+
+| 项目 | 已记录的证据或状态 |
+|---|---|
+| API 与 MySQL 连接 | 用户本机于 2026-11-06 提供数据库健康检查成功结果 |
+| 模型请求并执行素材搜索 | 2026-11-10 真实请求返回六条墨墨资产元数据 |
+| 工具注册边界 | 2026-11-12 本地检查空列表、唯一名、重复名、未知名通过，类型检查通过 |
+| 工具结果反馈模型 | 第五课完成，2026-11-17 真实请求验证两次模型调用后回答 |
+| 无结果及无效参数运行分支 | 第四课尚无完整运行验证记录，不标为全部通过 |
+| COS 文件读取、真实图片预览 | 尚未验证，测试元数据已明确标注文件未接入 |
+
+### 七、基础设施配置与排障
+
+#### NestJS 编译与运行
+
+项目保留 ESM 和 `@/` 路径别名。Nest 依赖装饰器及构造函数元数据，使用 TypeScript 编译后运行。`pnpm dev` 监听源码，编译成功后通过 `dev:start` 改写导入路径并重启服务。`pnpm build` 负责清理、编译和改写路径。`pnpm start` 直接运行已构建的 JavaScript。
+
+可选的宿主机运行方式：先准备依赖和 MySQL，再执行 `pnpm typecheck`、`pnpm dev`。宿主机默认 API 端口为 3000，可由 PORT 覆盖；不要误认为容器对外也是该端口。`pnpm build` 生成构建产物，`pnpm start` 运行产物。原终端模型演示已移除。
+
+TypeScript 7 曾导致 tsc-watch 使用包子路径查找编译器时报 ERR_PACKAGE_PATH_NOT_EXPORTED。当前 dev 脚本用 `--compiler "$PWD/node_modules/typescript/bin/tsc"` 指定文件入口，适用于当前 macOS shell 环境。
+
+#### MySQL 配置与数据卷
+
+compose.yaml 使用 MySQL 8.4、独立业务账号、健康检查与命名数据卷。配置由 database.config.ts 读取，DatabaseModule 注册连接池。
+
+| 变量 | 宿主机默认值或用途 |
+|---|---|
+| MYSQL_HOST | 127.0.0.1；API 容器内由 Compose 覆盖为 mysql |
+| MYSQL_PORT | 3307；API 容器内覆盖为 3306 |
+| MYSQL_DATABASE | short_drama |
+| MYSQL_USER | short_drama，应用业务账号 |
+| MYSQL_PASSWORD | 应用账号密码 |
+| MYSQL_ROOT_PASSWORD | 仅初始化使用，不作为 API 连接凭证 |
+
+MySQL 镜像仅在首次初始化数据目录时创建账号与数据库；已有卷时修改 .env 不会自动改掉数据库中的密码或库名，需通过数据库操作同步。不要通过删除卷解决普通配置问题。
+
+数据库健康检查用业务账号执行 SELECT 1；启动连接失败会导致应用无法启动，启动后数据库检查失败返回 HTTP 503。
+
+#### 容器挂载与环境变量
+
+Compose 使用 Dockerfile 的 development 阶段，源码 src 可写挂载，package.json 与 TypeScript 配置只读挂载，dist 和 Linux 依赖保存在容器内，不复用宿主机 node_modules。源码修改由开发命令监听、编译并重启；依赖或 Dockerfile 改动后重新执行 `pnpm docker:up` 构建镜像。配置有热更新机制不等于已经实测所有修改均生效。
+
+Compose 从宿主机 .env 读取配置，只向 API 注入所需业务数据库与 DeepSeek 变量，不注入 root 密码。.env 被 .dockerignore 排除。环境变量修改后需重新创建容器配置。
+
+Dockerfile 另有 runtime 阶段，但当前 Compose 使用开发阶段，不代表已完成生产部署。早期依赖安装曾使用 --no-frozen-lockfile；安装可复现性应以当前 Dockerfile 和锁文件为准，不能只凭历史搭建成功作保证。
+
+#### 迁移与常见故障
+
+迁移脚本内包含编译及导入路径改写，生成的时间戳-SchemaChange.ts 通过源码挂载直接写入宿主机。生成只对比结构，不执行迁移；先审查 up/down，再执行 db:migrate。无结构差异时无需生成新文件。
+
+若调整 Compose 挂载配置，在数据库已经启动的前提下，可用以下命令重建 API 容器配置：
+
+```bash
+docker compose up -d --no-deps --force-recreate api
+```
+
+- Docker socket 不存在或无法连接引擎：确认 Docker Desktop 已启动并就绪。
+- 助手环境曾遇到网络、FSEvents 和端口权限限制；这些限制不能证明用户本机环境失败。以实际执行输出为准。
+- `docker compose config --quiet` 只验证配置，不验证镜像构建、数据库连接或 HTTP。避免输出展开的完整配置以免泄露密码。
+- 应用健康与数据库健康各有边界，COS 文件可用性及真实模型请求需要单独验证。
+
+2026-11-06 用户提供数据库健康检查成功输出，已取代早期“引擎不可达、连接待验证”的阶段状态。资产迁移及工具查询随后完成，验证见上表与下方逐步记录。
+
+以下保留工具原理与学习记录。部署细节以仓库当前配置为准，历史修改原因可通过 Git 查阅。
+
 ## 1. 从生成内容到请求行动
 
 第三课让模型生成结构化分镜。第四课学习让模型请求调用一个本地工具，由程序执行并得到真实结果。
@@ -91,9 +242,9 @@
 
 先在 `src/assets/assets.service.ts` 实现普通业务查询，由 `@InjectRepository(Asset)` 注入 Repository；在 AssetsModule 注册并导出服务，后续 HTTP 接口和工具复用它。
 
-第一步按 ownerId 限定范围，按一个关键词匹配名称或描述，按更新时间倒序最多返回 10 条；空关键词返回空列表。先不加标签搜索、向量检索或图片内容识别。查询条件使用参数绑定，匹配名称与描述的 OR 条件放在括号内，确保两者都受 ownerId 条件限制。
+第一步按 userId 限定范围，按一个关键词匹配名称或描述，按更新时间倒序最多返回 10 条；空关键词返回空列表。先不加标签搜索、向量检索或图片内容识别。查询条件使用参数绑定，匹配名称与描述的 OR 条件放在括号内，确保两者都受 userId 条件限制。
 
-ownerId 来自服务端上下文，不是模型可任意指定的工具参数。当前只是业务服务方法，尚未注册工具，也未发生模型调用。服务完成后，通过少量明确标注的样本记录验证命中、无结果及用户范围，再接工具协议。
+userId 来自服务端上下文，不是模型可任意指定的工具参数。当前只是业务服务方法，尚未注册工具，也未发生模型调用。服务完成后，通过少量明确标注的样本记录验证命中、无结果及用户范围，再接工具协议。
 
 ## 通用工具契约与组装（2026-11-10）
 

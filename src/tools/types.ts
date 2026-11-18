@@ -1,6 +1,6 @@
 /** 程序提供的可信执行上下文，不由模型填写。 */
 export type ToolExecutionContext = {
-  ownerId: string;
+  userId: string;
 };
 
 /** 给模型看的工具说明。 */

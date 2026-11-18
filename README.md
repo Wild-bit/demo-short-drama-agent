@@ -44,6 +44,8 @@ docker compose up -d --build --wait --wait-timeout 180
 
 API：`http://localhost:3100/api/health`；数据库检查：`http://localhost:3100/api/health/database`。
 
-源码挂载到 API 容器，容器内编译与重启；不需要本机安装 MySQL 或先安装 Node 依赖。文件修改、依赖变更与常用命令见[容器开发说明](./teacher/04c-containerized-api.md)。
+源码挂载到 API 容器，容器内编译与重启；不需要本机安装 MySQL 或先安装 Node 依赖。文件修改、依赖变更与常用命令见[容器开发说明](./teacher/04-tool-definition-and-execution.md)。
 
-Compose 配置检查通过，但当前助手环境无法连接 Docker 引擎，镜像构建、HTTP 与热更新尚未验证。新增数据库依赖的锁文件还需联网安装后补齐。
+只重启 API 时运行 `docker compose restart api`，也可在宿主机用 `pnpm docker:restart` 或 `pnpm restart`。
+
+已验证开发容器能通过当前脚本启动 API，数据库健康检查和迁移状态查询均通过。
