@@ -70,7 +70,7 @@ Deep Agents 提供文件读写工具，把大段内容放到可按需读取的�
 
 | 小步 | 亲手实现 | 验收证据 |
 |---|---|---|
-| 7.1 测量输入 | 在 `context.ts` 组装系统规则、工具声明、历史和本轮消息。用同一套 token 估算比较请求，接通实测后与供应商返回的用量对照 | 能说出每部分占多少。对话轮数相同但工具结果不同，预算判断会不同 |
+| 7.1 测量输入 | 在 `context.ts` 组装模型输入。先用 JSON 的 UTF-8 字节数定位增长，再与供应商返回的输入 token 用量对照 | 能指出工具返回前后是哪部分增长，并解释请求字节数与模型 token 用量各自怎么得到 |
 | 7.2 精简工具结果 | 先给素材搜索做一版确定性字段挑选。保留候选顺序、素材 ID、名称、类型和本轮必要信息，完整 JSON 继续保存在原始历史 | 普通输入无需额外模型请求。工具消息的 `toolCallId` 与原调用仍对应，原始消息未被改写 |
 | 7.3 按预算选近期交互 | 先计入系统规则、工具声明、输出预留和安全余量，再给本轮消息和必要的业务记录留空间。剩余预算从新到旧选择完整交互，输出时恢复时间正序 | 同一组调用与结果一起保留或一起移出。刚产生的工具结果塞满窗口时，用更小的投影、按页回查或返回可处理的超限错误 |
 | 7.4 给旧历史做摘要检查点 | 在 `compaction.ts` 为已经结束的旧交互生成小摘要，记录 `sessionId` 和被覆盖到的 `sequence`，以便后续从检查点接续。摘要另存，保留上一份有效检查点直到新摘要通过校验 | 摘要内容、覆盖范围和旧消息可核对。摘要失败或体积未减少时，旧检查点仍可用；额外模型调用单独记入用量 |
@@ -112,3 +112,159 @@ Deep Agents 提供文件读写工具，把大段内容放到可按需读取的�
 6. **同会话延续与新会话隔离**。让 A 连续触发两次压缩，重载检查点后追问仍命中同一个素材。在新会话 B 直接问「刚才第三张」应请求澄清。B 主动搜索墨墨仍能查到个人素材。
 
 第七课的过关证据包括两部分：能解释各家 Harness 在哪一层处理膨胀，以及能用同一个会话证明输入变短后仍能继续准确做事。
+
+## 5. 7.1 动手第一步：观察工具结果让输入长了多少
+
+新建会话后发「搜索墨墨」。第一次请求携带系统规则、这句用户消息和工具定义。模型要求调用搜索工具后，Harness 把工具调用和结果追加到 `newMessages`。第二次请求带着这组新增消息，让模型能根据结果作答。虽然始终是同一条用户请求，两次模型输入已经不同。
+
+用仓库当前的系统提示词和搜索工具定义，以一条固定的素材结果跑了本地示例。两次模型输入的体积分别如下，单位均为 UTF-8 字节。
+
+| 输入部分 | 第一次 | 第二次 |
+|---|---:|---:|
+| 系统规则 | 1,279 | 1,279 |
+| 旧历史（空数组） | 2 | 2 |
+| 本轮消息 | 42 | 284 |
+| 工具定义 | 571 | 571 |
+| 完整内部请求 | 1,915 | 2,157 |
+
+这次增加了 242 字节，全部来自本轮消息里的工具调用和结果。完整内部请求按 `{ messages, tools }` 单独序列化。各部分单独量时也会算上自己的 JSON 括号，因此分项大小用于定位变化，总量以完整对象为准。字节数取决于序列化内容，模型输入 token 取决于供应商的分词和协议处理。这里先观察增长，接下来再采集模型用量。
+
+### 在 `src/harness/agent/context.ts` 组装并测量
+
+```ts
+import type { TextGenerationRequest, TextMessage } from "@/gateway/text/types";
+import type { ToolDefinition } from "@/tools/types";
+import type { SessionMessagePayload } from "../types";
+
+/** 计算数据序列化为 JSON 后的 UTF-8 字节数。 */
+function jsonBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+/** 组装一次模型请求，并测量各部分的体积。 */
+export function buildModelInput(
+  systemPrompt: string,
+  history: readonly SessionMessagePayload[],
+  currentTurn: readonly SessionMessagePayload[],
+  tools: ToolDefinition[],
+) {
+  const systemMessage: TextMessage = { role: "system", content: systemPrompt };
+  const request: TextGenerationRequest = {
+    messages: [systemMessage, ...history, ...currentTurn],
+    tools,
+  };
+
+  return {
+    request,
+    inputSizes: {
+      systemBytes: jsonBytes(systemMessage),
+      historyBytes: jsonBytes(history),
+      currentTurnBytes: jsonBytes(currentTurn),
+      toolDefinitionsBytes: jsonBytes(tools),
+      requestBytes: jsonBytes(request),
+    },
+  };
+}
+```
+
+### 在 `AgentService.runWithHistory` 里记录每次调用
+
+从 `@nestjs/common` 导入 `Logger`，从 `./context` 导入 `buildModelInput`。原先用于本地组装 `messages` 的 `TextMessage` 类型导入可移到新文件。给 `AgentService` 增加以下字段。
+
+```ts
+private readonly logger = new Logger(AgentService.name);
+```
+
+把循环开头从创建 `messages` 到调用 Gateway 的部分替换为以下代码。其余代码继续把工具调用和结果追加到 `newMessages`，下一次循环就能测到变化。
+
+```ts
+const tools = this.toolRegistry.getDefinitions();
+const { request, inputSizes } = buildModelInput(
+  agentSystemPrompt,
+  history,
+  newMessages,
+  tools,
+);
+
+modelCallCount += 1;
+this.logger.log({
+  event: "model_input_measured",
+  modelCallNumber: modelCallCount,
+  ...inputSizes,
+});
+const response = await generateDeepSeekText(request);
+```
+
+验收时在新会话提交「从我的素材库搜索墨墨，告诉我找到了哪些候选」。查看两条 `model_input_measured` 日志，核对 `modelCallNumber` 为 1 和 2，第二条的 `currentTurnBytes` 和 `requestBytes` 更大。日志只包含调用编号和计数。实测素材的描述、标签和 ID 会影响字节数。
+
+接着在同一个会话发「刚才第三张叫什么？直接根据上次回答」。上一轮已保存的消息现在通过 `history` 进入请求，`historyBytes` 会大于空数组的 2 字节。`modelCallNumber` 从 1 重新计数，因为这是一次新的 Agent 执行。
+
+当前项目代码已接入 `buildModelInput` 和日志，类型检查通过。用固定的模型和工具响应直接调用 `AgentService`，两次模型输入分别为 1,915 和 2,157 字节，工具调用和结果仍按同一个 ID 配对。把上一轮新增消息作为第二轮的历史传入后，首条日志的 `historyBytes` 从 2 升到 358，`modelCallNumber` 重新从 1 计数。这次验证覆盖 Agent 与 Gateway 的请求组装，模型响应由测试提供。
+
+## 6. 7.1 动手第二步：从 Gateway 读回实际 token
+
+假设「搜索墨墨」的第一次调用在发送前测得 1,915 字节。DeepSeek 回来时，响应里的 `usage` 记录了供应商实际统计的 token。比如模拟响应为 `{"prompt_tokens":480,"completion_tokens":20,"total_tokens":500}`。Gateway 把它转换成 `inputTokens: 480`、`outputTokens: 20`、`totalTokens: 500`。第二次请求带上工具结果，收到自己的 `usage`。这两个响应分别提供各自的用量，字节数仍负责定位输入里的哪一部分在增长。[DeepSeek Chat Completions API](https://api-docs.deepseek.com/api/create-chat-completion/)
+
+在 `src/gateway/text/types.ts` 更新整个结果类型。
+
+```ts
+export type TextGenerationResult = {
+  text: string;
+  toolCalls: ToolCall[];
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+};
+```
+
+在 `src/gateway/text/deepseek.ts` 的 `DeepSeekResponse` 内，与 `choices` 同级添加原始响应用量。
+
+```ts
+usage?: {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+} | null;
+```
+
+在 `generateDeepSeekText` 末尾，用以下代码替换原先的 `return { text, toolCalls };`。缺少 `usage` 时保留原结果，用量未知和实际为零可以分别表示。
+
+```ts
+const usage = response?.usage;
+if (!usage) {
+  return { text, toolCalls };
+}
+
+return {
+  text,
+  toolCalls,
+  usage: {
+    inputTokens: usage.prompt_tokens,
+    outputTokens: usage.completion_tokens,
+    totalTokens: usage.total_tokens,
+  },
+};
+```
+
+本小步验收 Gateway 的转换。用提供 `usage` 的模拟响应检查三个值，再用省略 `usage` 的模拟响应确认文本和工具请求仍可读取。下一小步在 Agent 调用返回后将同一次调用的字节数与实际用量一起记录。
+
+Gateway 的改动已通过类型检查和固定响应验证。有用量时映射为输入 480、输出 20、合计 500。省略用量时，工具调用仍完整返回。
+
+### 把同一次调用的字节数和 token 对在一起
+
+请求发送前，`inputSizes` 已经算出来。等待 `generateDeepSeekText(request)` 返回后，手上又多了同一次请求的 `response.usage`。当前实现将两组数据写在同一条日志里。缺少用量时日志省略 token 字段。
+
+```ts
+modelCallCount += 1;
+const response = await generateDeepSeekText(request);
+this.logger.log({
+  event: "model_input_measured",
+  modelCallNumber: modelCallCount,
+  ...inputSizes,
+  ...response.usage,
+});
+```
+
+7.1 已通过类型检查和固定模型响应验证。模拟「搜索墨墨」时，两次调用分别记录 1,915 字节和 480 输入 token、2,157 字节和 550 输入 token。模拟追问的响应省略了 `usage`，日志仍有字节数，追问仍能正常完成。token 数字来自测试设定的响应。7.2 将用同样的方法对比素材搜索完整结果与精简结果的体积。

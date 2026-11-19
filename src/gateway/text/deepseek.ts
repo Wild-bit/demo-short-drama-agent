@@ -7,6 +7,11 @@ import { loadDeepSeekConfig } from "./deepseek-config";
 import { createHttpClient } from "@/request/http-client";
 
 type DeepSeekResponse = {
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  } | null;
   choices?: {
     finish_reason?: string;
     message?: {
@@ -98,5 +103,19 @@ export async function generateDeepSeekText(
     arguments: call.function.arguments,
   }));
   const text = typeof message?.content === "string" ? message.content : "";
-  return { text, toolCalls };
+
+  const usage = response?.usage;
+  if (!usage) {
+    return { text, toolCalls };
+  }
+
+  return {
+    text,
+    toolCalls,
+    usage: {
+      inputTokens: usage.prompt_tokens,
+      outputTokens: usage.completion_tokens,
+      totalTokens: usage.total_tokens,
+    },
+  };
 }

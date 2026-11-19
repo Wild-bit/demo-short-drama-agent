@@ -36,4 +36,9 @@ export type TextGenerationRequest = {
 export type TextGenerationResult = {
   text: string;
   toolCalls: ToolCall[];
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
 };

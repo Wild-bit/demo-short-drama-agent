@@ -1,14 +1,16 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { generateDeepSeekText } from "@/gateway/text/deepseek";
 import { ToolRegistryService } from "@/tools/tool-registry.service";
 import type { ToolExecutionContext } from "@/tools/types";
-import type { TextMessage, ToolCall } from "@/gateway/text/types";
+import type { ToolCall } from "@/gateway/text/types";
 import { agentSystemPrompt } from "@/prompts/system/agent";
 import type { ToolExecutionRecord, AgentRunResult } from "../types";
 import { SessionMessagePayload } from "../types";
+import { buildModelInput } from "./context";
 
 @Injectable()
 export class AgentService {
+  private readonly logger = new Logger(AgentService.name);
   constructor(private readonly toolRegistry: ToolRegistryService) {}
 
   async runOnce(
@@ -34,16 +36,21 @@ export class AgentService {
     const toolResults: ToolExecutionRecord[] = [];
     let modelCallCount = 0;
     while (true) {
-      const messages: TextMessage[] = [
-        { role: "system", content: agentSystemPrompt },
-        ...history,
-        ...newMessages,
-      ];
+      const tools = this.toolRegistry.getDefinitions();
+      const { request, inputSizes } = buildModelInput(
+        agentSystemPrompt,
+        history,
+        newMessages,
+        tools,
+      );
 
       modelCallCount += 1;
-      const response = await generateDeepSeekText({
-        messages,
-        tools: this.toolRegistry.getDefinitions(),
+      const response = await generateDeepSeekText(request);
+      this.logger.log({
+        event: "model_input_measured",
+        modelCallNumber: modelCallCount,
+        ...inputSizes,
+        ...response.usage,
       });
 
       newMessages.push({
