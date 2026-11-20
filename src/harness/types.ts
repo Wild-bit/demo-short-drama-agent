@@ -11,6 +11,7 @@ export type AgentRunResult = {
   status: "completed";
   text: string;
   modelCallCount: number;
+  summaryModelCallCount?: number;
   toolCalls: ToolCall[];
   toolResults: ToolExecutionRecord[];
 };
@@ -21,3 +22,13 @@ export type SessionMessagePayload =
       role: "user";
       content: string;
     };
+
+export type SessionHistoryEntry = {
+  sequence: number;
+  message: SessionMessagePayload;
+};
+
+export type ContextCheckpoint = {
+  coveredThroughSequence: number;
+  text: string;
+};

@@ -6,7 +6,7 @@ import {
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { Session } from "../entities/session.entity";
-import type { SessionMessagePayload } from "../types";
+import type { ContextCheckpoint, SessionMessagePayload } from "../types";
 import { SessionMessage } from "../entities/session-message.entity";
 import { AgentService } from "@/harness/agent/agent.service";
 import type { AgentRunResult } from "@/harness/types";
@@ -37,21 +37,8 @@ export class SessionService {
     sessionId: string,
     userId: string,
   ): Promise<SessionMessagePayload[]> {
-    const session = await this.sessionRepository
-      .createQueryBuilder("session")
-      .where("session.sessionId = :sessionId", { sessionId })
-      .andWhere("session.userId = :userId", { userId })
-      .getOne();
-
-    if (!session) {
-      throw new NotFoundException("会话不存在");
-    }
-    const messages = await this.messageRepository
-      .createQueryBuilder("message")
-      .where("message.sessionId = :sessionId", { sessionId: session.sessionId })
-      .orderBy("message.sequence", "ASC")
-      .getMany();
-
+    const session = await this.findOwnedSession(sessionId, userId);
+    const messages = await this.loadMessageRows(session.sessionId);
     return messages.map((row) => row.message);
   }
 
@@ -61,6 +48,7 @@ export class SessionService {
     userId: string,
     expectedLastSequence: number,
     newMessages: readonly SessionMessagePayload[],
+    checkpoint?: ContextCheckpoint,
   ): Promise<void> {
     await this.sessionRepository.manager.transaction(async (manager) => {
       const sessions = manager.getRepository(Session);
@@ -99,6 +87,14 @@ export class SessionService {
       );
       await sessions.update(sessionId, {
         updatedAt: () => "CURRENT_TIMESTAMP(3)",
+        ...(checkpoint &&
+          checkpoint.coveredThroughSequence > session.contextSummaryThroughSequence &&
+          checkpoint.coveredThroughSequence <= expectedLastSequence
+          ? {
+            contextSummary: checkpoint.text,
+            contextSummaryThroughSequence: checkpoint.coveredThroughSequence,
+          }
+          : {}),
       });
     });
   }
@@ -115,22 +111,43 @@ export class SessionService {
     }
     this.sessionsInProgress.add(sessionKey);
     try {
-      const history = await this.loadHistory(sessionId, userId);
-      const expectedLastSequence = history.length;
-      const { result, newMessages } = await this.agentService.runWithHistory(
+      const session = await this.findOwnedSession(sessionId, userId);
+      const history = await this.loadMessageRows(session.sessionId);
+      const expectedLastSequence = history.at(-1)?.sequence ?? 0;
+      const previous = session.contextSummary && session.contextSummaryThroughSequence
+        ? { text: session.contextSummary, coveredThroughSequence: session.contextSummaryThroughSequence }
+        : undefined;
+      const { result, newMessages, checkpoint } = await this.agentService.runWithHistory(
         message,
         { userId },
         history,
+        previous,
       );
       await this.appendMessages(
-        sessionId,
+        session.sessionId,
         userId,
         expectedLastSequence,
         newMessages,
+        checkpoint,
       );
       return result;
     } finally {
       this.sessionsInProgress.delete(sessionKey);
     }
+  }
+
+  private async findOwnedSession(sessionId: string, userId: string): Promise<Session> {
+    const session = await this.sessionRepository.findOneBy({ sessionId, userId });
+    if (!session) {
+      throw new NotFoundException("会话不存在");
+    }
+    return session;
+  }
+
+  private loadMessageRows(sessionId: string): Promise<SessionMessage[]> {
+    return this.messageRepository.find({
+      where: { sessionId },
+      order: { sequence: "ASC" },
+    });
   }
 }

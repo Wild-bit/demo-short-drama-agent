@@ -15,6 +15,11 @@ export class ToolRegistryService {
     }
   }
 
+  /** 为本轮创建工具表，保留原注册器中的工具实例。 */
+  withAdditionalTools(...additionalTools: AgentTool[]): ToolRegistryService {
+    return new ToolRegistryService([...this.tools.values(), ...additionalTools]);
+  }
+
   getDefinitions() {
     return [...this.tools.values()].map((tool) => tool.definition);
   }

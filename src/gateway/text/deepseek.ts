@@ -3,8 +3,9 @@ import type {
   TextGenerationResult,
   TextMessage,
 } from "./types";
-import { loadDeepSeekConfig } from "./deepseek-config";
+import { getDeepSeekContextConfig } from "@/config/deepseek-context";
 import { createHttpClient } from "@/request/http-client";
+import { loadDeepSeekConfig } from "./deepseek-config";
 
 type DeepSeekResponse = {
   usage?: {
@@ -58,10 +59,37 @@ function toDeepSeekMessage(message: TextMessage) {
   };
 }
 
+function toDeepSeekInput(request: TextGenerationRequest) {
+  return {
+    messages: request.messages.map(toDeepSeekMessage),
+    tools: request.tools?.map((tool) => ({
+      type: "function",
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      },
+    })),
+  };
+}
+
+/** 按发给 DeepSeek 的消息和工具声明的 JSON 字节数保守估计用量。 */
+export function estimateDeepSeekInputTokens(
+  request: TextGenerationRequest,
+): number {
+  return Buffer.byteLength(JSON.stringify(toDeepSeekInput(request)), "utf8");
+}
+
+/** 估计追加一条消息占用的空间，数组分隔符由调用方计入。 */
+export function estimateDeepSeekMessageTokens(message: TextMessage): number {
+  return Buffer.byteLength(JSON.stringify(toDeepSeekMessage(message)), "utf8");
+}
+
 export async function generateDeepSeekText(
   request: TextGenerationRequest,
 ): Promise<TextGenerationResult> {
   const { apiKey, baseUrl, model } = loadDeepSeekConfig();
+  const { maxOutputTokens } = getDeepSeekContextConfig();
   const httpClient = createHttpClient({
     baseUrl,
     headers: {
@@ -73,22 +101,13 @@ export async function generateDeepSeekText(
     "/chat/completions",
     {
       model,
-      messages: request.messages.map(toDeepSeekMessage),
+      ...toDeepSeekInput(request),
       stream: false,
-      max_tokens: 1024,
+      max_tokens: maxOutputTokens,
       thinking: { type: "disabled" },
       response_format: {
         type: request.outputFormat === "json" ? "json_object" : "text",
       },
-      // 适配deepseek 的工具调用格式
-      tools: request.tools?.map((tool) => ({
-        type: "function",
-        function: {
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.parameters,
-        },
-      })),
     },
   );
   const choice = response?.choices?.[0];
