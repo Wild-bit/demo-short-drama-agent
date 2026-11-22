@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { RunTrace } from '../dist/harness/trace/run-trace.js';
 import { AgentService } from '../dist/harness/agent/agent.service.js';
 import { ToolRegistryService } from '../dist/tools/tool-registry.service.js';
 
@@ -101,7 +102,9 @@ test('摘要失败后复用已落库的旧检查点', async (t) => {
     { role: 'assistant', content: '新剧情已写完' },
   ]);
   const previous = { coveredThroughSequence: 4, text: '之前已经确定主角是墨墨。' };
-  const next = await agent.runWithHistory('继续', { userId: 'user-a' }, history, previous);
+  const trace = new RunTrace();
+  const next = await agent.runWithHistory('继续', { userId: 'user-a' }, history, previous, trace);
+  assert.deepEqual(trace.steps.map(({ kind, status }) => [kind, status]), [['summary', 'failed'], ['model', 'completed']]);
 
   assert.equal(requests.length, 2);
   assert.match(requests[1].messages[1].content, /之前已经确定主角是墨墨/);

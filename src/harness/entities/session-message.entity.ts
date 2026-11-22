@@ -10,7 +10,8 @@ export class SessionMessage extends TimestampEntity {
 
   @Column({ type: "varchar", length: 36, name: "session_id" })
   sessionId!: string;
-  /** 会话内从 1 开始递增的消息顺序。 */
+
+  /** 写入时按会话从 1 递增分配，用户、助手和工具消息各占一个序号。 */
   @Column({ type: "int", unsigned: true })
   sequence!: number;
 

@@ -52,6 +52,7 @@ export function prepareHistorySummary(
   const request: TextGenerationRequest = {
     messages: [{ role: "system", content: summaryInstruction }],
   };
+  // 从旧摘要的末条序号开始，每纳入一轮完整对话，就推进到该轮最后一条。
   let coveredThroughSequence = previous?.coveredThroughSequence ?? 0;
   let displacedInput = previous
     ? estimateDeepSeekMessageTokens(checkpointMessage(previous)) + 1
@@ -107,8 +108,9 @@ export function prepareHistorySummary(
 /** 摘要通过大小检查后才作为新检查点交给会话存储。 */
 export async function summarizeHistory(
   batch: NonNullable<ReturnType<typeof prepareHistorySummary>>,
+  signal?: AbortSignal,
 ) {
-  const response = await generateDeepSeekText(batch.request);
+  const response = await generateDeepSeekText(batch.request, { signal });
   const text = response.text.trim();
   const candidate = { text, coveredThroughSequence: batch.coveredThroughSequence };
   const checkpoint =

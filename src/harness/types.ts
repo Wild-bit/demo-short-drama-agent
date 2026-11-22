@@ -7,8 +7,11 @@ export type ToolExecutionRecord = {
   result: unknown;
 };
 
-export type AgentRunResult = {
-  status: "completed";
+export type AgentRunState =
+  | { status: "completed" }
+  | { status: "stopped"; reason: "tool_call_limit" };
+
+export type AgentRunResult = AgentRunState & {
   text: string;
   modelCallCount: number;
   summaryModelCallCount?: number;
@@ -24,11 +27,13 @@ export type SessionMessagePayload =
     };
 
 export type SessionHistoryEntry = {
+  /** 该消息写入当前会话时分配的序号，从 1 开始。 */
   sequence: number;
   message: SessionMessagePayload;
 };
 
 export type ContextCheckpoint = {
+  /** 这份摘要覆盖到的最后一条原始消息序号，包含该条。 */
   coveredThroughSequence: number;
   text: string;
 };

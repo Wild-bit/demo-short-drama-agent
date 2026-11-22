@@ -16,6 +16,7 @@ export const readSessionHistoryDefinition: ToolDefinition = {
     type: "object",
     properties: {
       query: { type: "string", description: "用户或助手原话中的简短关键词" },
+      // 模型向前翻页时传入上次返回的 nextBeforeSequence，只查末条序号小于它的对话。
       beforeSequence: { type: "integer", minimum: 1, description: "只查该序号之前的完整对话" },
     },
     additionalProperties: false,
@@ -32,6 +33,7 @@ export function readSessionHistory(
     return { found: false, reason: "invalid_arguments" };
   }
   const query = "query" in input ? input.query : "";
+  // 首次省略 beforeSequence 时，从本次可回查范围内最近的一轮开始查找。
   const before = "beforeSequence" in input ? input.beforeSequence : Number.MAX_SAFE_INTEGER;
   if (
     typeof query !== "string" || query.length > HISTORY_RECALL_MAX_QUERY_CODE_UNITS ||

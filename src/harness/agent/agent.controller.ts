@@ -9,7 +9,7 @@ import { AgentService } from "./agent.service";
 export class AgentController {
   constructor(private readonly agentService: AgentService) {}
 
-  /**  第五课入口：运行一次用户任务，持续处理工具调用，直到模型不再请求工具。 */
+  /** 运行一次用户任务，返回模型回答或工具调用超限的停止提示。 */
   @Post("run-once")
   runOnce(@Body("message") message: unknown, @CurrentUserId() userId: string) {
     if (typeof message !== "string" || message.trim() === "") {

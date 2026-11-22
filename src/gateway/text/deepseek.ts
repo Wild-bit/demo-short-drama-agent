@@ -7,12 +7,10 @@ import { getDeepSeekContextConfig } from "@/config/deepseek-context";
 import { createHttpClient } from "@/request/http-client";
 import { loadDeepSeekConfig } from "./deepseek-config";
 
+import { modelUsage, readDeepSeekStream, type DeepSeekUsage, type TextDeltaHandler } from "./deepseek-stream";
+
 type DeepSeekResponse = {
-  usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-  } | null;
+  usage?: DeepSeekUsage | null;
   choices?: {
     finish_reason?: string;
     message?: {
@@ -87,6 +85,7 @@ export function estimateDeepSeekMessageTokens(message: TextMessage): number {
 
 export async function generateDeepSeekText(
   request: TextGenerationRequest,
+  options: { signal?: AbortSignal; onTextDelta?: TextDeltaHandler } = {},
 ): Promise<TextGenerationResult> {
   const { apiKey, baseUrl, model } = loadDeepSeekConfig();
   const { maxOutputTokens } = getDeepSeekContextConfig();
@@ -97,19 +96,20 @@ export async function generateDeepSeekText(
       "Content-Type": "application/json",
     },
   });
-  const response = await httpClient.post<DeepSeekResponse>(
-    "/chat/completions",
-    {
-      model,
-      ...toDeepSeekInput(request),
-      stream: false,
-      max_tokens: maxOutputTokens,
-      thinking: { type: "disabled" },
-      response_format: {
-        type: request.outputFormat === "json" ? "json_object" : "text",
-      },
-    },
-  );
+  const body = {
+    model,
+    ...toDeepSeekInput(request),
+    max_tokens: maxOutputTokens,
+    thinking: { type: "disabled" },
+    response_format: { type: request.outputFormat === "json" ? "json_object" : "text" },
+  };
+  if (options.onTextDelta) {
+    const response = await httpClient.postResponse("/chat/completions", {
+      ...body, stream: true, stream_options: { include_usage: true },
+    }, options.signal);
+    return readDeepSeekStream(response, options.onTextDelta);
+  }
+  const response = await httpClient.post<DeepSeekResponse>("/chat/completions", { ...body, stream: false }, options.signal);
   const choice = response?.choices?.[0];
   if (choice?.finish_reason === "length") {
     throw new Error("模型输出达到长度上限，未获得完整响应");
@@ -131,10 +131,6 @@ export async function generateDeepSeekText(
   return {
     text,
     toolCalls,
-    usage: {
-      inputTokens: usage.prompt_tokens,
-      outputTokens: usage.completion_tokens,
-      totalTokens: usage.total_tokens,
-    },
+    usage: modelUsage(usage),
   };
 }
