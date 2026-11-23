@@ -66,10 +66,10 @@ async function displayReply({ sessionId, token, message, signal, answer, status 
   let modelCallNumber;
   status.textContent = "正在连接";
   try {
-    const response = await fetch(`/api/sessions/${sessionId}/turns/stream`, {
+    const response = await fetch(`/api/sessions/stream`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ sessionId, message }),
       signal,
     });
     if (!response.ok) throw new Error(`提交失败（HTTP ${response.status}）`);
@@ -131,11 +131,11 @@ async function displayReply({ sessionId, token, message, signal, answer, status 
 准备已登录用户的 `TOKEN` 和该用户的 `SESSION_ID`。下面两条命令依次提交消息、查询第一条事件给出的 `RUN_ID`。流式请求会使用本机 API 配置的模型。
 
 ```sh
-curl -sS -N "http://localhost:3100/api/sessions/$SESSION_ID/turns/stream" \
+curl -sS -N "http://localhost:3100/api/sessions/stream" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"message":"从我的素材库搜索墨墨，告诉我找到了哪些候选。"}'
+  -d "{\"sessionId\":\"$SESSION_ID\",\"message\":\"从我的素材库搜索墨墨，告诉我找到了哪些候选。\"}"
 
-curl -sS "http://localhost:3100/api/sessions/$SESSION_ID/runs/$RUN_ID" \
+curl -sS "http://localhost:3100/api/sessions/run?sessionId=$SESSION_ID&runId=$RUN_ID" \
   -H "Authorization: Bearer $TOKEN"
 ```
 

@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { getDeepSeekContextConfig } from '../dist/config/deepseek-context.js';
 import { AgentService } from '../dist/harness/agent/agent.service.js';
 import { buildModelInput } from '../dist/harness/agent/context.js';
+import { ToolRegistryService } from '../dist/tools/tool-registry.service.js';
 
 const system = '你是短剧助手';
 const tools = [];
@@ -90,6 +91,24 @@ test('显式正常模式使用官方窗口和 16K 输出上限，即使仍设置
   assert.equal(request.max_tokens, 16_384);
 });
 
+test('多轮历史中已落库的空 toolCalls 数组不会在后续请求里序列化成空 tool_calls', async (t) => {
+  configureModelFixture(t, 'normal');
+  let sentBody;
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    sentBody = JSON.parse(options.body);
+    return Response.json({ choices: [{ message: { content: '已生成剧情梗概' } }] });
+  });
+  const agent = new AgentService(new ToolRegistryService([]));
+  const history = [
+    { sequence: 1, message: { role: 'user', content: '搜素材' } },
+    { sequence: 2, message: { role: 'assistant', content: '共 6 张墨墨参考图', toolCalls: [] } },
+  ];
+  const { result, newMessages } = await agent.runWithHistory('根据素材生成剧情梗概', { userId: 'fixture' }, history);
+  assert.equal(result.text, '已生成剧情梗概');
+  assert.equal('tool_calls' in sentBody.messages[2], false);
+  assert.equal('toolCalls' in newMessages.at(-1), false);
+});
+
 test('新增工具结果超限会拦住第二次模型调用', async (t) => {
   configureModelFixture(t);
   const fetch = t.mock.method(globalThis, 'fetch', async () => Response.json({
@@ -145,6 +164,7 @@ test('超长素材结果自动简化后继续，候选顺序与原始记录可�
     id: `asset-${index + 1}`,
     name: `墨墨-${name}`,
     type: 'image',
+    url: `https://resource.lancespace.club/short-drama/asset-${index + 1}.jpg`,
     description: '待选择的素材详情'.repeat(500),
     tags: ['墨墨'],
   }));
@@ -170,9 +190,20 @@ test('超长素材结果自动简化后继续，候选顺序与原始记录可�
   assert.equal(result.text, '第三张是墨墨-思考。');
   assert.equal(sentTool.tool_call_id, 'search-1');
   assert.deepEqual(JSON.parse(sentTool.content), {
-    assets: assets.map(({ id, name, type }) => ({ id, name, type })),
+    assets: assets.map(({ id, name, type, url }) => ({ id, name, type, url })),
     detailsOmitted: true,
   });
   assert.deepEqual(JSON.parse(newMessages.find(message => message.role === 'tool').content), { assets });
   assert.deepEqual(result.toolResults[0].result, { assets });
+});
+
+test('链接本身超出预算时仍可向模型传递有序素材名单', () => {
+  const candidate = { id: 'asset-1', name: '墨墨-招手', type: 'image' };
+  const result = { assets: [{ ...candidate, url: 'https://assets.fixture.invalid/' + '%E5%A2%A8'.repeat(300) }] };
+  const turn = recentTurn.slice(0, 3).map(message => message.role === 'tool'
+    ? { ...message, content: JSON.stringify(result) }
+    : message);
+  const input = buildModelInput(system, [], turn, tools, 1000);
+  const tool = input.request.messages.find(message => message.role === 'tool');
+  assert.deepEqual(JSON.parse(tool.content), { assets: [candidate], detailsOmitted: true });
 });

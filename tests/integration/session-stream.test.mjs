@@ -19,6 +19,10 @@ function chunk(delta, finish_reason = null) {
 test('逐段展示、跨会话隔离、Trace 归属、终态与断线后的历史一致', {
   timeout: 30000, skip: !process.env.MYSQL_PASSWORD && '需要通过 --env-file=.env 连接开发库',
 }, async t => {
+  const assetCdnOrigin = 'https://assets.fixture.invalid';
+  const objectKey = 'short-drama/lesson9/墨墨 #招手).jpg';
+  const assetUrl = `${assetCdnOrigin}/short-drama/lesson9/%E5%A2%A8%E5%A2%A8%20%23%E6%8B%9B%E6%89%8B%29.jpg`;
+  const assetLink = `[墨墨-招手](${assetUrl})`;
   const nextText = Promise.withResolvers();
   const upstreamCancelled = Promise.withResolvers();
   const historyChanged = Promise.withResolvers();
@@ -60,7 +64,7 @@ test('逐段展示、跨会话隔离、Trace 归属、终态与断线后的历�
       const { assets } = JSON.parse(messages.at(-1).content);
       res.write(chunk({ content: '找到了' }));
       await nextText.promise;
-      res.write(chunk({ content: assets.map(a => a.name).join('、') }));
+      res.write(chunk({ content: assets.map(a => `[${a.name}](${a.url})`).join('、') }));
     } else {
       res.write(chunk({ content: '分镜是按镜头组织的画面计划。' }));
     }
@@ -70,6 +74,7 @@ test('逐段展示、跨会话隔离、Trace 归属、终态与断线后的历�
   Object.assign(process.env, {
     DEEPSEEK_API_KEY: 'local-fixture', DEEPSEEK_MODEL: 'fixture-model',
     DEEPSEEK_BASE_URL: 'http://127.0.0.1:' + provider.address().port, AGENT_CONTEXT_PROFILE: 'normal',
+    ASSET_CDN_ORIGIN: assetCdnOrigin,
   });
   t.after(() => { nextText.resolve(); historyChanged.resolve(); provider.closeAllConnections(); provider.close(); });
   const app = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
@@ -105,14 +110,19 @@ test('逐段展示、跨会话隔离、Trace 归属、终态与断线后的历�
   }
   const owner = await account();
   const other = await account();
-  const { sessionId: a } = await (await http('/sessions', owner.token, {})).json();
-  const { sessionId: b } = await (await http('/sessions', owner.token, {})).json();
+  const { sessionId: a } = await (await http('/sessions/create', owner.token, {})).json();
+  const { sessionId: b } = await (await http('/sessions/create', owner.token, {})).json();
   await db.getRepository('Asset').save({
-    name: '墨墨-招手', userId: owner.userId, type: 'image', source: 'upload', description: '墨墨', tags: [], objectKey: 'lesson9/fixture',
+    name: '墨墨-招手', userId: owner.userId, type: 'image', source: 'upload', description: '墨墨', tags: [], objectKey,
   });
+  const searchPath = '/assets/search?query=' + encodeURIComponent('墨墨');
+  const searchResponse = await http(searchPath, owner.token);
+  assert.equal(searchResponse.status, 200);
+  assert.deepEqual((await searchResponse.json()).map(asset => asset.url), [assetUrl]);
+  assert.deepEqual(await (await http(searchPath, other.token)).json(), []);
 
   async function submit(id, message, signal, onEvent) {
-    const response = await http('/sessions/' + id + '/turns/stream', owner.token, { message }, signal);
+    const response = await http('/sessions/stream', owner.token, { sessionId: id, message }, signal);
     assert.match(response.headers.get('content-type'), /^text\/event-stream/);
     const events = [];
     const frames = response.body
@@ -129,7 +139,7 @@ test('逐段展示、跨会话隔离、Trace 归属、终态与断线后的历�
     assert.ok(events.every(e => e.runId === events[0].runId));
     return events;
   }
-  const path = (session, run) => '/sessions/' + session + '/runs/' + run;
+  const path = (session, run) => `/sessions/run?sessionId=${session}&runId=${run}`;
   const read = async (id, run) => (await http(path(id, run), owner.token)).json();
   const messages = id => db.getRepository('SessionMessage').countBy({ sessionId: id });
 
@@ -148,12 +158,12 @@ test('逐段展示、跨会话隔离、Trace 归属、终态与断线后的历�
     assert.notEqual(bEvents[0].runId, first.runId);
     assert.equal((await http(path(b, first.runId), owner.token)).status, 404);
     assert.equal((await http(path(a, first.runId), other.token)).status, 404);
-    assert.equal((await http('/sessions/' + a + '/turns/stream', other.token, { message: '越权' })).status, 404);
-    assert.equal((await http('/sessions/' + a + '/turns/stream', owner.token, { message: '并发' })).status, 409);
+    assert.equal((await http('/sessions/stream', other.token, { sessionId: a, message: '越权' })).status, 404);
+    assert.equal((await http('/sessions/stream', owner.token, { sessionId: a, message: '并发' })).status, 409);
   } finally { nextText.resolve(); }
   const events = await aEvents;
-  assert.deepEqual(events.filter(e => e.type === 'text_delta').map(e => e.text), ['找到了', '墨墨-招手']);
-  assert.equal(events.at(-1).text, '找到了墨墨-招手');
+  assert.deepEqual(events.filter(e => e.type === 'text_delta').map(e => e.text), ['找到了', assetLink]);
+  assert.equal(events.at(-1).text, '找到了' + assetLink);
   assert.equal(events.at(-1).type, 'completed');
   const trace = await read(a, events[0].runId);
   assert.deepEqual(trace.steps.map(s => s.kind), ['model', 'tool', 'model']);
@@ -161,6 +171,12 @@ test('逐段展示、跨会话隔离、Trace 归属、终态与断线后的历�
   assert.equal(trace.steps[2].usage.totalTokens, 15);
   assert.ok(trace.steps.every(s => s.status === 'completed' && s.durationMs >= 0));
   assert.equal(await messages(a), 4);
+  const sessionMessages = db.getRepository('SessionMessage');
+  const toolMessage = await sessionMessages.findOneByOrFail({ sessionId: a, sequence: 3 });
+  const assistantMessage = await sessionMessages.findOneByOrFail({ sessionId: a, sequence: 4 });
+  assert.equal(toolMessage.message.toolName, 'search_user_assets');
+  assert.equal(JSON.parse(toolMessage.message.content).assets[0].url, assetUrl);
+  assert.equal(assistantMessage.message.content, '找到了' + assetLink);
 
   const failed = await submit(a, '测试失败');
   assert.equal(failed.at(-1).type, 'failed');
@@ -201,7 +217,7 @@ test('逐段展示、跨会话隔离、Trace 归属、终态与断线后的历�
   assert.equal(await messages(b), 4);
   assert.equal((await read(b, conflicts[0].runId)).status, 'failed');
 
-  const json = await (await http('/sessions/' + a + '/turns', owner.token, { message: '继续' })).json();
+  const json = await (await http('/sessions/turn', owner.token, { sessionId: a, message: '继续' })).json();
   assert.equal(json.text, '普通回答');
   assert.equal((await read(a, json.runId)).status, 'completed');
 });

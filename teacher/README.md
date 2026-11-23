@@ -18,6 +18,7 @@
 - [第七课：各家 Agent Harness 怎样处理上下文膨胀](./07-context-compaction.md)：对照 Multica、DeepSeek Harness、Codex、OpenCode 等公开实现，再动手做预算、压缩和历史回查。
 - [第八课：工具循环的步数控制](./08-agent-run-control.md)：沿着素材搜索理解按轮计数、整批超限和停止后的会话历史。
 - [第九课：SSE 与 Trace](./09-sse-and-trace.md)。从一段增量回答走读会话提交、工具进度、Trace 与断线取消。
+- [第十课 · 项目、会话与分镜工作台](./10-project-workbench.md)。10.1 走读项目与会话归属，10.2 走读分镜建议、保存版本和生成前确认，10.3 在 Web 工作台验收。
 - [项目 README](../README.md)：当前项目状态。
 - [Gateway 路由讨论记录](./gateway-routing-discussion.md)：提前讨论的选择规则与职责分工，尚未进入实现；评测 Agent 列为后期扩展。
 

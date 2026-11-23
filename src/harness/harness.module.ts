@@ -9,9 +9,10 @@ import { Session } from "./entities/session.entity";
 import { SessionMessage } from "./entities/session-message.entity";
 import { SessionController } from "./session/session.controller";
 import { SessionService } from "./session/session.service";
+import { ProjectsModule } from "@/projects/projects.module";
 
 @Module({
-  imports: [AuthModule, ToolsModule, TypeOrmModule.forFeature([Session, SessionMessage, AgentRunRecord])],
+  imports: [AuthModule, ToolsModule, ProjectsModule, TypeOrmModule.forFeature([Session, SessionMessage, AgentRunRecord])],
   providers: [AgentService, SessionService],
   controllers: [AgentController, SessionController],
 })

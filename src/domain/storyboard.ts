@@ -19,3 +19,20 @@ export type Storyboard = {
   /** 分镜列表：按播放顺序排列，镜头数量根据本次需求确定。 */
   shots: Shot[];
 };
+
+/** 工作台镜头所需的画面、台词与可独立编辑的视频生成提示词。 */
+export type ShotContent = Pick<Shot, "scene" | "visual" | "dialogue"> & { prompt: string };
+export type EditableShot = ShotContent & { shotId?: string; assetIds: string[] };
+export type SavedShot = EditableShot & { shotId: string };
+
+/** 数组顺序就是播放顺序。移动镜头只改变位置，已有 shotId 随镜头保留。 */
+export type StoryboardDraft<T extends EditableShot = EditableShot> =
+  Pick<Storyboard, "title" | "synopsis"> & { script: string; shots: T[] };
+
+export type SelectedShot = { version: number; shot: SavedShot };
+export type StoryboardTurnContext = { baseVersion: number; selectedShot?: SelectedShot };
+
+/** 两种卡片分别供工作台替换整份草案或只更新用户点选的一个镜头。 */
+export type StoryboardProposal =
+  | { kind: "storyboard"; baseVersion: number; storyboard: StoryboardDraft }
+  | { kind: "shot"; baseVersion: number; shot: SavedShot };

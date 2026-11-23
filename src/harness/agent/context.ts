@@ -80,6 +80,7 @@ function hasAssetIdentity(asset: unknown): asset is {
   id: string;
   name: string;
   type: "image" | "video";
+  url?: unknown;
 } {
   return typeof asset === "object" &&
     asset !== null &&
@@ -88,20 +89,33 @@ function hasAssetIdentity(asset: unknown): asset is {
     "type" in asset && (asset.type === "image" || asset.type === "video");
 }
 
-/** 本轮仍超预算时保留有序候选名单，详情继续保存于原始工具结果。 */
-function keepAssetSearchCandidates(content: string): string {
+/** 本轮超预算时保留有序候选名单，预算允许时也保留素材链接。 */
+function keepAssetSearchCandidates(content: string, includeUrls: boolean): string {
   const result = parseAssetSearchResult(content);
   if (!result || !result.assets.length || !result.assets.every(hasAssetIdentity)) {
     return content;
   }
   const candidateList = JSON.stringify({
-    assets: result.assets.map(({ id, name, type }) => ({ id, name, type })),
+    assets: result.assets.map(({ id, name, type, url }) => ({
+      id,
+      name,
+      type,
+      url: includeUrls && typeof url === "string" ? url : undefined,
+    })),
     detailsOmitted: true,
   });
   return Buffer.byteLength(candidateList) < Buffer.byteLength(content)
     ? candidateList
     : content;
 }
+
+/** 降档第一级：保留有序候选和素材链接，去掉描述与标签。 */
+const keepCandidatesWithLinks = (content: string) =>
+  keepAssetSearchCandidates(content, true);
+
+/** 降档第二级：只保留 ID、名称和类型。 */
+const keepCandidatesWithoutLinks = (content: string) =>
+  keepAssetSearchCandidates(content, false);
 
 /** 只在模型输入中精简素材搜索结果，通过工具调用 ID 找到对应结果。 */
 function compactToolMessages(
@@ -110,6 +124,11 @@ function compactToolMessages(
 ) {
   const assetSearchCallIds = new Set<string>();
   return messages.map((message) => {
+    // 用户主动引用的单镜随本条提问进入模型；聊天栏保留用户原文。
+    if (message.role === "user" && message.selectedShot) {
+      assetSearchCallIds.clear();
+      return { role: message.role, content: message.content + "\n\n本次选中的镜头资料：" + JSON.stringify(message.selectedShot) };
+    }
     if (message.role === "assistant" || message.role === "user") {
       assetSearchCallIds.clear();
       if (message.role === "assistant") {
@@ -117,6 +136,14 @@ function compactToolMessages(
           if (call.name === "search_user_assets") {
             assetSearchCallIds.add(call.id);
           }
+        }
+        // 最终回答里的草案与 UI 组件卡片供界面恢复；工具参数已在本会话历史中。
+        if (message.storyboardProposal || message.uiBlocks) {
+          return {
+            role: message.role,
+            content: message.content,
+            ...(message.toolCalls?.length && { toolCalls: message.toolCalls }),
+          };
         }
       }
     }
@@ -127,6 +154,84 @@ function compactToolMessages(
     const content = compactSearchResult(message.content);
     return content === message.content ? message : { ...message, content };
   });
+}
+
+/** 消息数组里每多一条消息，JSON 序列化时就多一个逗号。 */
+const MESSAGE_SEPARATOR_BYTES = 1;
+
+/** 估算一组消息追加到请求里占用的空间。 */
+function measureMessages(messages: readonly SessionMessagePayload[]): number {
+  return messages.reduce(
+    (total, message) =>
+      total + estimateDeepSeekMessageTokens(message) + MESSAGE_SEPARATOR_BYTES,
+    0,
+  );
+}
+
+/** 按用户消息把历史切成完整轮次；开头不属于任何一整轮的消息不参与选择。 */
+function groupCompleteTurns(
+  messages: readonly SessionMessagePayload[],
+): SessionMessagePayload[][] {
+  const turns: SessionMessagePayload[][] = [];
+  for (const message of messages) {
+    if (message.role === "user") {
+      turns.push([]);
+    } else if (turns.length === 0) {
+      continue;
+    }
+    turns.at(-1)!.push(message);
+  }
+  return turns;
+}
+
+/** 本轮消息优先占用预算；装不下时依次去掉素材结果的描述、标签和链接。 */
+function fitCurrentTurn(
+  systemMessage: TextMessage,
+  currentTurn: readonly SessionMessagePayload[],
+  tools: ToolDefinition[],
+  inputBudgetTokens: number,
+): { messages: SessionMessagePayload[]; estimatedTokens: number } {
+  let modelCurrentTurn = compactToolMessages(currentTurn);
+  const measureInput = () =>
+    estimateDeepSeekInputTokens({ messages: [systemMessage, ...modelCurrentTurn], tools });
+  let estimatedTokens = measureInput();
+  for (const compactSearchResult of [keepCandidatesWithLinks, keepCandidatesWithoutLinks]) {
+    if (estimatedTokens <= inputBudgetTokens) break;
+    modelCurrentTurn = compactToolMessages(modelCurrentTurn, compactSearchResult);
+    estimatedTokens = measureInput();
+  }
+  if (estimatedTokens > inputBudgetTokens) {
+    throw new PayloadTooLargeException({
+      statusCode: 413,
+      code: "AGENT_INPUT_BUDGET_EXCEEDED",
+      message: "本轮输入或工具结果超出上下文预算，请缩短消息或缩小查询范围",
+      estimatedInputTokens: estimatedTokens,
+      inputBudgetTokens,
+    });
+  }
+  return { messages: modelCurrentTurn, estimatedTokens };
+}
+
+/** 从最新一轮往前挑出装得下的完整轮次；遇到第一轮放不下就停止。 */
+function fitRecentHistory(
+  history: readonly SessionMessagePayload[],
+  usedTokens: number,
+  inputBudgetTokens: number,
+) {
+  const turns = groupCompleteTurns(history);
+  let keptTokens = 0;
+  let keptMessageCount = 0;
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turnTokens = measureMessages(turns[index]);
+    if (usedTokens + keptTokens + turnTokens > inputBudgetTokens) break;
+    keptTokens += turnTokens;
+    keptMessageCount += turns[index].length;
+  }
+  return {
+    retainedHistory: history.slice(history.length - keptMessageCount),
+    droppedHistoryMessages: history.length - keptMessageCount,
+    retainedTokens: keptTokens,
+  };
 }
 
 /** 在预算内组装一次模型请求，并测量各部分的体积。 */
@@ -143,62 +248,34 @@ export function buildModelInput(
     content: systemPrompt,
   };
 
-  let modelCurrentTurn = compactToolMessages(currentTurn);
-  const requiredInput: TextGenerationRequest = {
-    messages: [systemMessage, ...modelCurrentTurn],
-    tools,
-  };
-  let estimatedInputTokens = estimateDeepSeekInputTokens(requiredInput);
-  if (estimatedInputTokens > inputBudgetTokens) {
-    modelCurrentTurn = compactToolMessages(modelCurrentTurn, keepAssetSearchCandidates);
-    requiredInput.messages = [systemMessage, ...modelCurrentTurn];
-    estimatedInputTokens = estimateDeepSeekInputTokens(requiredInput);
-  }
-  if (estimatedInputTokens > inputBudgetTokens) {
-    throw new PayloadTooLargeException({
-      statusCode: 413,
-      code: "AGENT_INPUT_BUDGET_EXCEEDED",
-      message: "本轮输入或工具结果超出上下文预算，请缩短消息或缩小查询范围",
-      estimatedInputTokens,
-      inputBudgetTokens,
-    });
-  }
+  // 本轮消息优先进入预算。
+  const currentTurnFit = fitCurrentTurn(systemMessage, currentTurn, tools, inputBudgetTokens);
 
+  // 预算还够时带上旧摘要，摘要只占一条 user 消息。
   const summaryMessage = checkpoint && checkpointMessage(checkpoint);
   const summaryTokens = summaryMessage
-    ? estimateDeepSeekMessageTokens(summaryMessage) + 1
+    ? estimateDeepSeekMessageTokens(summaryMessage) + MESSAGE_SEPARATOR_BYTES
     : 0;
   const summaryIncluded =
-    summaryMessage !== undefined && estimatedInputTokens + summaryTokens <= inputBudgetTokens;
-  if (summaryIncluded) {
-    estimatedInputTokens += summaryTokens;
-  }
+    summaryMessage !== undefined &&
+    currentTurnFit.estimatedTokens + summaryTokens <= inputBudgetTokens;
+  const usedTokens =
+    currentTurnFit.estimatedTokens + (summaryIncluded ? summaryTokens : 0);
 
-  const modelHistory = compactToolMessages(history);
-  let droppedHistoryMessages = modelHistory.length;
-  let turnTokens = 0;
-  for (let index = modelHistory.length - 1; index >= 0; index -= 1) {
-    const message = modelHistory[index];
-    // 消息数组已有 system，每加入一条历史消息会多一个逗号。
-    turnTokens += estimateDeepSeekMessageTokens(message) + 1;
-    if (message.role !== "user") {
-      continue;
-    }
-    if (estimatedInputTokens + turnTokens > inputBudgetTokens) {
-      break;
-    }
-    droppedHistoryMessages = index;
-    estimatedInputTokens += turnTokens;
-    turnTokens = 0;
-  }
+  // 剩余预算从最新一轮历史往前补齐。
+  const { retainedHistory, droppedHistoryMessages, retainedTokens } = fitRecentHistory(
+    compactToolMessages(history),
+    usedTokens,
+    inputBudgetTokens,
+  );
+  const estimatedInputTokens = usedTokens + retainedTokens;
 
-  const retainedHistory = modelHistory.slice(droppedHistoryMessages);
   const request: TextGenerationRequest = {
     messages: [
       systemMessage,
       ...(summaryIncluded && summaryMessage ? [summaryMessage] : []),
       ...retainedHistory,
-      ...modelCurrentTurn,
+      ...currentTurnFit.messages,
     ],
     tools,
   };
@@ -207,7 +284,7 @@ export function buildModelInput(
     inputSizes: {
       systemBytes: jsonBytes(systemMessage),
       historyBytes: jsonBytes(retainedHistory),
-      currentTurnBytes: jsonBytes(modelCurrentTurn),
+      currentTurnBytes: jsonBytes(currentTurnFit.messages),
       toolDefinitionsBytes: jsonBytes(tools),
       requestBytes: jsonBytes(request),
       estimatedInputTokens,

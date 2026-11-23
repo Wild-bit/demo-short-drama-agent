@@ -40,14 +40,18 @@ function toDeepSeekMessage(message: TextMessage) {
     return {
       role: message.role,
       content: message.content,
-      tool_calls: message.toolCalls?.map((call) => ({
-        id: call.id,
-        type: "function",
-        function: {
-          name: call.name,
-          arguments: call.arguments,
-        },
-      })),
+      ...(message.toolCalls?.length
+        ? {
+            tool_calls: message.toolCalls.map((call) => ({
+              id: call.id,
+              type: "function",
+              function: {
+                name: call.name,
+                arguments: call.arguments,
+              },
+            })),
+          }
+        : {}),
     };
   }
 

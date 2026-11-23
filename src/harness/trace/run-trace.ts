@@ -1,6 +1,7 @@
 import { HttpException } from "@nestjs/common";
 import type { TextGenerationResult, ToolCall } from "@/gateway/text/types";
-import type { AgentRunState } from "../types";
+import type { AgentRunState, ChatUiBlock } from "../types";
+import type { StoryboardProposal } from "@/domain/storyboard";
 
 export type RunStatus = "running" | AgentRunState["status"] | "failed" | "cancelled";
 export type TraceStep = {
@@ -20,8 +21,15 @@ export type RunEvent =
   | { type: "started" }
   | { type: "text_delta"; modelCallNumber: number; text: string }
   | { type: "step_started" | "step_finished"; step: TraceStep }
-  | { type: "completed"; text: string }
-  | { type: "stopped"; reason: "tool_call_limit"; text: string }
+  | { type: "ui_block"; block: ChatUiBlock }
+  | {
+      type: "completed";
+      text: string;
+      storyboardProposal?: StoryboardProposal;
+      uiBlocks?: ChatUiBlock[];
+      sessionName?: string;
+    }
+  | { type: "stopped"; reason: "tool_call_limit"; text: string; sessionName?: string }
   | { type: "failed"; message: string; statusCode: number };
 
 export type SessionStream = {

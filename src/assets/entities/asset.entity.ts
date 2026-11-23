@@ -1,5 +1,6 @@
 import {
   Entity,
+  Index,
   PrimaryGeneratedColumn,
   Column,
 } from "typeorm";
@@ -9,6 +10,8 @@ export type AssetType = "image" | "video";
 export type AssetSource = "upload" | "generated";
 
 @Entity("assets")
+// 素材库按用户和类型分页，按更新时间倒序读取。
+@Index("idx_assets_user_type_updated", ["userId", "type", "updatedAt"])
 export class Asset extends TimestampEntity {
   /** 资产唯一ID */
   @PrimaryGeneratedColumn("uuid")

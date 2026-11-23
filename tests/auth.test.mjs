@@ -57,9 +57,19 @@ test('业务入口均配置 Guard，业务查询使用已验证用户 ID',async(
   for(const controller of [AssetsController,SessionController,AgentController]) {
     assert.ok(Reflect.getMetadata('__guards__',controller).includes(AuthGuard));
   }
-  let owner;
-  const assets=new AssetsController({searchAssets:(id)=>{owner=id;return []}});
+  let owner,listed;
+  const assets=new AssetsController({
+    searchAssets:(id)=>{owner=id;return []},
+    listAssets:(id,options)=>{owner=id;listed=options;return {items:[],total:0}},
+  });
   assets.search('user-b','墨墨');assert.equal(owner,'user-b');
+  assets.list('user-c','video','2','12','墨墨');assert.equal(owner,'user-c');
+  assert.deepEqual(listed,{type:'video',page:2,pageSize:12,query:'墨墨'});
+  assets.list('user-c','image');
+  assert.deepEqual(listed,{type:'image',page:1,pageSize:24,query:undefined});
+  for(const args of [['audio'],['image','0'],['image','1','49'],['image','1','abc']]) {
+    assert.throws(()=>assets.list('user-c',...args),{status:400});
+  }
   const sessions=new SessionController({create:async id=>{owner=id;return {sessionId:'s',name:'新会话'}}});
   await sessions.createSession('user-b');assert.equal(owner,'user-b');
 });

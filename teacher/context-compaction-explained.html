@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>上下文压缩：prepareTurnInput 十岁版说明书</title>
+<style>
+  :root {
+    --bg: #fbf9f5;
+    --surface: #ffffff;
+    --ink: #22201d;
+    --ink-soft: #5c5750;
+    --ink-faint: #8c857b;
+    --line: #e6e0d6;
+    --line-strong: #d3cabb;
+    --accent: #b4552d;
+    --accent-soft: #f7e9e1;
+    --blue: #2f6f8f;
+    --blue-soft: #e6f1f5;
+    --green: #4a7c4e;
+    --green-soft: #e9f2e8;
+    --amber: #9a6a12;
+    --amber-soft: #fbf0d9;
+    --red: #a33a2c;
+    --red-soft: #fbe9e6;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 48px 24px 96px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  main {
+    max-width: 860px;
+    margin: 0 auto;
+  }
+
+  /* ---------- 标题区 ---------- */
+
+  header.title {
+    margin-bottom: 40px;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  h1 {
+    font-size: 34px;
+    line-height: 1.3;
+    margin: 10px 0 12px;
+    letter-spacing: -0.015em;
+  }
+
+  h1 code {
+    font-family: var(--mono);
+    font-size: 0.82em;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 2px 8px;
+    vertical-align: 0.08em;
+  }
+
+  .lede {
+    font-size: 17px;
+    color: var(--ink-soft);
+    margin: 0;
+  }
+
+  h2 {
+    font-size: 24px;
+    margin: 56px 0 16px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    letter-spacing: -0.01em;
+  }
+
+  h2 .num {
+    display: inline-block;
+    min-width: 34px;
+    font-family: var(--mono);
+    font-size: 15px;
+    color: var(--accent);
+    vertical-align: 0.12em;
+  }
+
+  h3 {
+    font-size: 18px;
+    margin: 36px 0 12px;
+  }
+
+  p { margin: 0 0 16px; }
+
+  /* ---------- 书包比喻卡 ---------- */
+
+  .metaphor {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 24px 26px;
+    margin: 28px 0;
+    font-size: 17px;
+  }
+
+  .metaphor strong { color: var(--accent); }
+
+  /* ---------- 表格 ---------- */
+
+  .table-wrap {
+    overflow-x: auto;
+    margin: 20px 0 28px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14.5px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  thead th {
+    background: #f4f0e9;
+    text-align: left;
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.03em;
+    color: var(--ink-soft);
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line-strong);
+  }
+
+  tbody td {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: #f3efe8;
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: #6c3d20;
+    white-space: nowrap;
+  }
+
+  /* ---------- 流程图 ---------- */
+
+  .flow {
+    margin: 28px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .node {
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    padding: 16px 20px;
+    position: relative;
+  }
+
+  .node .label {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  .node .body { font-size: 15px; }
+
+  .node code { font-size: 12.5px; }
+
+  .node.step { border-left: 4px solid var(--blue); }
+  .node.decision {
+    border-left: 4px solid var(--amber);
+    background: var(--amber-soft);
+  }
+  .node.ok { border-left: 4px solid var(--green); background: var(--green-soft); }
+  .node.fail { border-left: 4px solid var(--red); background: var(--red-soft); }
+
+  .arrow {
+    align-self: center;
+    width: 2px;
+    height: 26px;
+    background: var(--line-strong);
+    position: relative;
+  }
+
+  .arrow::after {
+    content: "";
+    position: absolute;
+    bottom: -1px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 8px solid var(--line-strong);
+  }
+
+  .branch {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin: 18px 0;
+    position: relative;
+  }
+
+  .branch::before {
+    content: "";
+    position: absolute;
+    top: -18px;
+    left: 25%;
+    right: 25%;
+    height: 1px;
+    background: var(--line-strong);
+  }
+
+  .branch-arm {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .arm-label {
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+    padding: 8px 0;
+    position: relative;
+  }
+
+  .arm-label::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 1px;
+    height: 8px;
+    background: var(--line-strong);
+  }
+
+  @media (max-width: 620px) {
+    .branch { grid-template-columns: 1fr; }
+    .branch::before { display: none; }
+  }
+
+  /* ---------- 代码块 ---------- */
+
+  pre {
+    background: #24211d;
+    color: #e8e2d8;
+    border-radius: 10px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.7;
+    margin: 18px 0 22px;
+  }
+
+  pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+    white-space: pre;
+  }
+
+  .c { color: #8d8579; }      /* 注释 */
+  .k { color: #e09a6a; }      /* 关键字 */
+  .s { color: #a8c98b; }      /* 字符串 */
+  .f { color: #7fb8d4; }      /* 函数名 */
+  .hl {
+    background: rgba(224, 154, 106, 0.22);
+    border-radius: 3px;
+    padding: 0 3px;
+  }
+
+  /* ---------- 分支说明卡 ---------- */
+
+  .branch-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 16px 0;
+  }
+
+  .branch-card .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    padding: 2px 9px;
+    border-radius: 999px;
+    margin-bottom: 10px;
+    background: var(--blue-soft);
+    color: var(--blue);
+  }
+
+  .branch-card.warn .tag { background: var(--amber-soft); color: var(--amber); }
+  .branch-card.good .tag { background: var(--green-soft); color: var(--green); }
+  .branch-card.bad  .tag { background: var(--red-soft); color: var(--red); }
+
+  .branch-card h4 {
+    margin: 0 0 8px;
+    font-size: 16px;
+  }
+
+  .branch-card p:last-child { margin-bottom: 0; }
+
+  .verdict {
+    margin-top: 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: #f5f2ec;
+    font-size: 14.5px;
+  }
+
+  .verdict::before {
+    content: "结论 ";
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--ink-faint);
+    margin-right: 6px;
+  }
+
+  /* ---------- 三道关口 ---------- */
+
+  .gate {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    margin: 18px 0;
+    overflow: hidden;
+    background: var(--surface);
+  }
+
+  .gate-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 14px 20px;
+    background: #f4f0e9;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .gate-no {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+  }
+
+  .gate-title { font-weight: 600; font-size: 16px; }
+
+  .gate-fn {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+  }
+
+  .gate-body { padding: 16px 20px; }
+
+  .gate-body .line {
+    font-family: var(--mono);
+    font-size: 14px;
+    padding: 6px 12px;
+    border-left: 2px solid var(--line-strong);
+    margin: 6px 0;
+    color: var(--ink-soft);
+  }
+
+  .gate-body .line.yes { border-left-color: var(--green); color: var(--green); }
+  .gate-body .line.no  { border-left-color: var(--amber); color: var(--amber); }
+  .gate-body .line.boom{ border-left-color: var(--red); color: var(--red); }
+
+  /* ---------- 小抄 ---------- */
+
+  .cheatsheet {
+    background: #24211d;
+    color: #f0ebe2;
+    border-radius: 12px;
+    padding: 28px 30px;
+    margin: 32px 0;
+    font-size: 17px;
+    line-height: 1.85;
+  }
+
+  .cheatsheet .kicker {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #e09a6a;
+    display: block;
+    margin-bottom: 12px;
+  }
+
+  .cheatsheet strong { color: #ffc79a; }
+
+  /* ---------- 页脚 ---------- */
+
+  footer {
+    margin-top: 72px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    font-size: 13px;
+    color: var(--ink-faint);
+  }
+
+  footer code { font-size: 12px; }
+
+  @media print {
+    body { background: #fff; padding: 0; }
+    pre, .cheatsheet { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<header class="title">
+  <div class="eyebrow">Short Drama Agent · Harness</div>
+  <h1>上下文压缩：<code>prepareTurnInput</code><br />十岁版说明书</h1>
+  <p class="lede">
+    这个函数决定：每次问模型之前，要从长长的聊天记录里挑哪些内容带过去，挑不下的旧内容怎么变成一张便利贴。
+  </p>
+</header>
+
+<section>
+  <div class="metaphor">
+    🎒 <strong>先记住一个画面：</strong>模型每次只能看一个<strong>限量书包</strong>。
+    聊天记录是越来越多的卡片，你要在每次提问之前，把卡片整理成一包能塞进书包的；
+    塞不下的旧卡片，写成一张<strong>便利贴</strong>，让模型「看一眼就知道旧事」。
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">01</span>角色表</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>小朋友名字</th><th>代码名字</th><th>住在哪</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>书包容量</td>
+          <td><code>inputBudgetTokens</code>（lesson 模式 = 13,952）</td>
+          <td><code>config/deepseek-context.ts</code></td>
+        </tr>
+        <tr>
+          <td>本次要打包的卡片</td>
+          <td><code>liveHistory</code></td>
+          <td><code>prepareTurnInput</code></td>
+        </tr>
+        <tr>
+          <td>便利贴</td>
+          <td><code>ContextCheckpoint</code> / <code>turn.activeCheckpoint</code></td>
+          <td><code>types.ts</code></td>
+        </tr>
+        <tr>
+          <td>便利贴「贴到第几号卡片」</td>
+          <td><code>coveredThroughSequence</code></td>
+          <td>同上</td>
+        </tr>
+        <tr>
+          <td>打包机</td>
+          <td><code>buildModelInput</code></td>
+          <td><code>context.ts:238</code></td>
+        </tr>
+        <tr>
+          <td>打包记录</td>
+          <td><code>inputSizes</code></td>
+          <td>同上</td>
+        </tr>
+        <tr>
+          <td>被挤出书包的卡片数</td>
+          <td><code>droppedHistoryMessages</code></td>
+          <td>同上</td>
+        </tr>
+        <tr>
+          <td>这轮写过几张便利贴</td>
+          <td><code>summaryModelCallCount</code></td>
+          <td><code>TurnState</code></td>
+        </tr>
+        <tr>
+          <td>写便利贴的人</td>
+          <td><code>summarizeContext</code> → <code>summarizeHistory</code></td>
+          <td><code>agent.service.ts:191</code> / <code>compaction.ts:109</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">02</span>总流程图</h2>
+
+  <div class="flow">
+    <div class="node step">
+      <span class="label">入口</span>
+      <div class="body">每问一次模型之前，都要先经过 <code>prepareTurnInput</code>（<code>agent.service.ts:161</code>）</div>
+    </div>
+
+    <div class="arrow"></div>
+
+    <div class="node step">
+      <span class="label">第 ① 步</span>
+      <div class="body">🧹 <strong>把「已经写进便利贴」的旧卡片拿走</strong><br />只留序号 &gt; 便利贴覆盖点 的卡片</div>
+    </div>
+
+    <div class="arrow"></div>
+
+    <div class="node step">
+      <span class="label">第 ② 步</span>
+      <div class="body">📦 <strong>用打包机装一遍</strong>（<code>buildModelInput</code>）<br />打包记录会告诉它：有几张卡片没塞进去</div>
+    </div>
+
+    <div class="arrow"></div>
+
+    <div class="node decision">
+      <span class="label">第 ③ 步 · 判断</span>
+      <div class="body">
+        <strong>这次还要不要写一张新便利贴？</strong><br />
+        代码先写下<strong>提前返回</strong>的条件：<br />
+        <code>summaryModelCallCount &gt; 0</code>（已经写过）<br />
+        <code>|| droppedHistoryMessages === 0</code>（一张卡片都没被挤出去）<br />
+        两者只要成立<strong>一个</strong>，就直接返回，不写便利贴。
+      </div>
+    </div>
+
+    <div class="branch">
+      <div class="branch-arm">
+        <div class="arm-label">任一成立 → 提前返回</div>
+        <div class="node ok">
+          <span class="label">直接结束</span>
+          <div class="body">✅ 返回第一次的打包结果，去问模型</div>
+        </div>
+      </div>
+      <div class="branch-arm">
+        <div class="arm-label">两个都不成立 → 往下走</div>
+        <div class="node step">
+          <span class="label">第 ④ 步</span>
+          <div class="body">📝 <strong>写便利贴</strong>（<code>summarizeContext</code>）</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow"></div>
+
+    <div class="node step">
+      <span class="label">第 ⑤ 步</span>
+      <div class="body">🔁 <strong>用新便利贴重新打包一次</strong>，把结果交给模型</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">03</span>逐行读 <code>prepareTurnInput</code></h2>
+
+<pre><code><span class="k">private async</span> <span class="f">prepareTurnInput</span>(history, turn, tools, budget, trace) {
+  <span class="c">// ① 拿走已经写进便利贴的旧卡片</span>
+  <span class="k">const</span> liveHistory = history.<span class="f">filter</span>(
+    ({ sequence }) =&gt; sequence &gt; (turn.activeCheckpoint?.coveredThroughSequence ?? 0),
+  );
+
+  <span class="c">// ② 准备一台「打包机快捷按钮」</span>
+  <span class="k">const</span> <span class="f">assembleInput</span> = (entries, checkpoint) =&gt; <span class="f">buildModelInput</span>(...);
+
+  <span class="c">// ③ 第一次打包</span>
+  <span class="k">const</span> input = <span class="f">assembleInput</span>(liveHistory, turn.activeCheckpoint);
+
+  <span class="c">// ④⑤ 两个条件都满足，才去写便利贴</span>
+  <span class="k">if</span> (turn.summaryModelCallCount &gt; 0 || input.inputSizes.droppedHistoryMessages === 0) {
+    <span class="k">return</span> input;
+  }
+
+  <span class="c">// ⑥ 写便利贴后再打包</span>
+  <span class="k">return</span> <span class="k">this</span>.<span class="f">summarizeContext</span>(liveHistory, input, assembleInput, turn, budget, trace);
+}</code></pre>
+
+  <div class="branch-card">
+    <span class="tag">① 拿走旧卡片</span>
+    <h4><code>sequence &gt; coveredThroughSequence ?? 0</code></h4>
+    <p>
+      便利贴没写过时，<code>?? 0</code> 等于「从第 1 号卡片开始全带」。
+      写过，就从便利贴覆盖的<strong>下一号</strong>开始拿。
+      这样模型不会既看便利贴又看原文，免得同一件事听两遍。
+    </p>
+  </div>
+
+  <div class="branch-card">
+    <span class="tag">② 打包机快捷按钮</span>
+    <h4><code>assembleInput</code> 只留两个旋钮</h4>
+    <p>
+      把不常变的四样东西提前填好：系统提示词、本轮消息、工具清单、书包容量；
+      只留两个旋钮——<strong>哪些历史</strong>、<strong>哪张便利贴</strong>。
+    </p>
+    <p>
+      每按一次都重新打包，<strong>不缓存结果</strong>。所以后面能用不同便利贴各打包一次来比较。
+    </p>
+  </div>
+
+  <div class="branch-card">
+    <span class="tag">③ 第一次打包</span>
+    <h4>拿到 <code>input</code></h4>
+    <p>里面装着打包好的消息（<code>request</code>）和打包记录（<code>inputSizes</code>）。</p>
+  </div>
+
+  <div class="branch-card warn">
+    <span class="tag">④⑤ 提前返回条件</span>
+    <h4><code>if (A || B) return input;</code></h4>
+    <p>
+      A = <code>summaryModelCallCount &gt; 0</code>：这轮已经写过便利贴。
+      一次问答最多写一次，不重复写——写便利贴要额外问一次模型，又慢又花钱。<br />
+      B = <code>droppedHistoryMessages === 0</code>：一张卡片都没被挤出去，书包还装得下，没理由写。
+    </p>
+    <p>
+      这是<strong>或</strong>：A、B 里只要有一个成立，就直接返回第一次的打包结果。
+      反过来，能走到写便利贴那一步，需要<strong>两个都不成立</strong>。
+    </p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>A：已写过？<br /><code>summaryModelCallCount &gt; 0</code></th><th>B：没丢卡片？<br /><code>dropped === 0</code></th><th>结果</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>否</td><td>否</td><td><strong>写便利贴</strong>（唯一会写的一行）</td></tr>
+          <tr><td>否</td><td>是</td><td>直接返回</td></tr>
+          <tr><td>是</td><td>否</td><td>直接返回</td></tr>
+          <tr><td>是</td><td>是</td><td>直接返回</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      写成正面的「去写」条件就是 <code>!A &amp;&amp; !B</code>，也就是
+      <code>summaryModelCallCount === 0 &amp;&amp; droppedHistoryMessages &gt; 0</code>。
+      代码保留 <code>A || B</code> 的「提前返回」写法，是为了让主路径少一层缩进。
+    </p>
+  </div>
+
+  <div class="branch-card bad">
+    <span class="tag">⑥ 进入摘要</span>
+    <h4>两个条件都满足 → <code>summarizeContext</code></h4>
+    <p>任何一个不满足，直接返回第一次的打包结果。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">04</span><code>summarizeContext</code> 的每个分支</h2>
+
+<pre><code><span class="k">const</span> batch = <span class="f">prepareHistorySummary</span>(liveHistory.<span class="f">slice</span>(0, dropped), activeCheckpoint, budget);
+<span class="k">if</span> (!batch) <span class="k">return</span> input;                 <span class="c">// 分支 A</span>
+
+turn.summaryModelCallCount += 1;               <span class="c">// 先记账，失败也不重试</span>
+<span class="k">try</span> {
+  <span class="k">const</span> { checkpoint } = <span class="k">await</span> trace.<span class="f">recordModelCall</span>(
+    <span class="s">"summary"</span>,
+    () =&gt; <span class="f">summarizeHistory</span>(batch, trace.signal),
+  );
+  <span class="k">let</span> nextInput = input;
+  <span class="k">if</span> (checkpoint) {                          <span class="c">// 分支 B</span>
+    <span class="k">const</span> updated = <span class="f">assembleInput</span>(按新便利贴过滤, checkpoint);
+    <span class="k">if</span> (updated.inputSizes.summaryIncluded) { <span class="c">// 分支 C</span>
+      turn.activeCheckpoint = checkpoint;     <span class="c">// 分支 D</span>
+      nextInput = updated;
+    }
+  }
+  <span class="f">log</span>(accepted = 是否真的换了便利贴);
+  <span class="k">return</span> nextInput;
+} <span class="k">catch</span> {
+  trace.signal?.<span class="f">throwIfAborted</span>();               <span class="c">// 分支 E</span>
+  <span class="f">log</span>.<span class="f">warn</span>(<span class="s">"context_summary_failed"</span>);
+  <span class="k">return</span> input;
+}</code></pre>
+
+  <div class="branch-card warn">
+    <span class="tag">分支 A</span>
+    <h4>没有可写的材料 → 直接返回原输入</h4>
+    <p>
+      <code>prepareHistorySummary</code>（<code>compaction.ts:46</code>）只挑<strong>完整、连续</strong>的旧轮次：
+      一轮必须从用户提问开始，以「没有工具调用的助手回答」结束；
+      每条只取前 400 个字符；装进摘要请求就继续加，装不下就停。
+    </p>
+    <div class="verdict">挑不到 → 不写便利贴，本轮照常进行。</div>
+  </div>
+
+  <div class="branch-card warn">
+    <span class="tag">分支 B</span>
+    <h4>便利贴不合格 → 不采用</h4>
+    <p><code>summarizeHistory</code>（<code>compaction.ts:109</code>）有三道体检：</p>
+    <ol>
+      <li>正文不能是空的</li>
+      <li>不能超过 <strong>900 字节</strong>（便利贴每轮都要用，太长反而占地方）</li>
+      <li>必须比它替换掉的旧卡片<strong>更省空间</strong></li>
+    </ol>
+    <p>任何一条不过 → <code>checkpoint</code> 是 <code>undefined</code>。</p>
+  </div>
+
+  <div class="branch-card warn">
+    <span class="tag">分支 C</span>
+    <h4>便利贴自己装不进书包 → 不采用</h4>
+    <p>
+      拿到合格的便利贴，重新打包一次。如果打包记录说
+      <code>summaryIncluded = false</code>（便利贴加上必须留的内容超过书包容量），也不采用。
+    </p>
+    <div class="verdict">防止「为了省地方反而塞爆书包」。</div>
+  </div>
+
+  <div class="branch-card good">
+    <span class="tag">分支 D</span>
+    <h4>三关全过 → 采用</h4>
+    <p>
+      <code>turn.activeCheckpoint = checkpoint</code> 换成新便利贴，
+      <code>nextInput</code> 换成新打包结果。
+      函数返回后，主循环拿这份新输入去问模型。
+    </p>
+  </div>
+
+  <div class="branch-card bad">
+    <span class="tag">分支 E</span>
+    <h4>写便利贴时出事了 → 用原输入继续</h4>
+    <p>摘要模型超时、503 都走这里：</p>
+    <p>
+      ① 先问一句「是不是用户按了停止键？」是 → <code>throwIfAborted()</code> 真正中止。<br />
+      ② 不是 → 记一条 <code>warn</code> 日志，返回<strong>原来的打包结果</strong>。
+    </p>
+    <div class="verdict">
+      便利贴写坏了不影响本次回答，只是模型看不到那么早的旧事。
+    </div>
+  </div>
+
+  <div class="branch-card">
+    <span class="tag">附注</span>
+    <h4><code>trace.recordModelCall("summary", ...)</code></h4>
+    <p>
+      写便利贴是<strong>一次真实的模型调用</strong>，会计入运行轨迹，
+      前端能看到「这轮为什么多花了一次调用」。
+    </p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">05</span><code>prepareHistorySummary</code>：挑哪些旧卡片写进便利贴</h2>
+
+  <p>
+    分支 A 里提到的这个函数（<code>compaction.ts:46</code>）<strong>不请求模型</strong>，只负责挑选：
+    从被挤出书包的旧卡片里，挑出一批可以安全写进便利贴的<strong>完整轮次</strong>，拼成一份要交给模型的摘要请求。
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>方向</th><th>名字</th><th>是什么</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>拿进来</td><td><code>omitted</code></td><td>被挤出书包的旧卡片，即 <code>liveHistory.slice(0, dropped)</code></td></tr>
+        <tr><td>拿进来</td><td><code>previous</code></td><td>旧便利贴，可能没有</td></tr>
+        <tr><td>拿进来</td><td><code>inputBudgetTokens</code></td><td>摘要请求自己也不能超过的书包容量</td></tr>
+        <tr><td>交出去</td><td><code>request</code></td><td>要发给 DeepSeek 的摘要请求</td></tr>
+        <tr><td>交出去</td><td><code>coveredThroughSequence</code></td><td>新便利贴会贴到第几号卡片</td></tr>
+        <tr><td>交出去</td><td><code>displacedInput</code></td><td>新便利贴要替换掉的内容有多大，用来验收便利贴</td></tr>
+        <tr><td>交出去</td><td><code>undefined</code></td><td>一轮都没挑中，这次不写便利贴</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>例子：旧便利贴贴到第 4 号，被挤出去的是第 5–10 号</h3>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>序号</th><th>谁说的</th><th>内容</th><th>属于哪一轮</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>5</td><td>用户</td><td>搜索墨墨</td><td>轮 A</td></tr>
+        <tr><td>6</td><td>助手</td><td>发起 <code>search_user_assets</code> 调用</td><td>轮 A</td></tr>
+        <tr><td>7</td><td>工具</td><td>搜索结果（很长）</td><td>轮 A</td></tr>
+        <tr><td>8</td><td>助手</td><td>「找到三张：思考、探头、招手」</td><td>轮 A</td></tr>
+        <tr><td>9</td><td>用户</td><td>墨墨适合什么场景？</td><td>轮 B</td></tr>
+        <tr><td>10</td><td>助手</td><td>「夜晚的窗台」</td><td>轮 B</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+<pre><code><span class="k">export function</span> <span class="f">prepareHistorySummary</span>(omitted, previous, inputBudgetTokens) {
+  <span class="c">// ① 从旧便利贴的位置起步</span>
+  <span class="k">let</span> coveredThroughSequence = previous?.coveredThroughSequence ?? 0;
+  <span class="k">let</span> displacedInput = previous ? 旧便利贴的大小 : 0;
+
+  <span class="c">// ② 按用户提问切成整轮，一轮一轮看</span>
+  <span class="k">for</span> (<span class="k">const</span> turn <span class="k">of</span> <span class="f">splitHistoryTurns</span>(omitted)) {
+    <span class="k">const</span> last = turn.<span class="f">at</span>(-1);
+
+    <span class="c">// ③ 四项检查，有一项不过就停</span>
+    <span class="k">if</span> (
+      turn[0].sequence !== coveredThroughSequence + 1 ||
+      !last ||
+      last.sequence !== coveredThroughSequence + turn.length ||
+      last.message.role !== <span class="s">"assistant"</span> ||
+      last.message.toolCalls?.length
+    ) <span class="k">break</span>;
+
+    <span class="c">// ④ 只留用户看得见的卡片，每张最多取 400 个字符</span>
+    <span class="k">const</span> visible = turn.<span class="f">filter</span>(isVisibleMessage);
+
+    <span class="c">// ⑤ 试装：加上这一轮后，摘要请求超预算就停</span>
+    <span class="k">if</span> (<span class="f">estimateDeepSeekInputTokens</span>(candidate) &gt; inputBudgetTokens) <span class="k">break</span>;
+
+    <span class="c">// ⑥ 装得下，正式记账</span>
+    coveredThroughSequence = last.sequence;
+    displacedInput += 这一轮可见卡片的大小;
+  }
+
+  <span class="c">// ⑦ 一轮都没挑中，就不写便利贴</span>
+  <span class="k">if</span> (coveredThroughSequence === (previous?.coveredThroughSequence ?? 0)) <span class="k">return</span> undefined;
+  <span class="k">return</span> { request, coveredThroughSequence, displacedInput };
+}</code></pre>
+
+  <p>上面是节选，省略了拼装 <code>transcript</code> 和 <code>candidate</code> 的细节，判断和顺序与源码一致。</p>
+
+  <div class="branch-card">
+    <span class="tag">① 起点</span>
+    <h4>从旧便利贴停下的地方接着写</h4>
+    <p>
+      例子里 <code>coveredThroughSequence = 4</code>。没有旧便利贴时从 0 起步。
+      <code>displacedInput</code> 先记上旧便利贴的大小，因为新便利贴会把旧便利贴一起换掉。
+    </p>
+  </div>
+
+  <div class="branch-card">
+    <span class="tag">② 切成整轮</span>
+    <h4><code>splitHistoryTurns</code>：每遇到一张用户卡片，就开新的一轮</h4>
+    <p>例子切成两轮：轮 A 是第 5–8 号，轮 B 是第 9–10 号。</p>
+  </div>
+
+  <div class="branch-card warn">
+    <span class="tag">③ 分支 · 四项检查</span>
+    <h4>有一项不过 → <code>break</code>，这一轮和后面的都不挑</h4>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>检查</th><th>轮 A 的实际值</th><th>防的是什么</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>turn[0].sequence === covered + 1</code></td>
+            <td>5 = 4 + 1 ✓</td>
+            <td>和上一张便利贴之间不能有空洞</td>
+          </tr>
+          <tr>
+            <td><code>last.sequence === covered + turn.length</code></td>
+            <td>8 = 4 + 4 ✓</td>
+            <td>这一轮里面不能缺卡片</td>
+          </tr>
+          <tr>
+            <td><code>last.message.role === "assistant"</code></td>
+            <td>第 8 号是助手 ✓</td>
+            <td>这一轮必须有结尾</td>
+          </tr>
+          <tr>
+            <td>最后一张没有 <code>toolCalls</code></td>
+            <td>第 8 号是最终回答 ✓</td>
+            <td>停在工具调用的半轮不写进便利贴</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      代码里的 <code>!last</code> 只是给 TypeScript 看的空值保护。
+    </p>
+    <div class="verdict">
+      用「停」而不是「跳过」：便利贴只用一个数字表示「到这里为止都概括了」，跳过中间一轮去写后面的，这个数字就不准了。
+    </div>
+  </div>
+
+  <div class="branch-card">
+    <span class="tag">④ 只留看得见的卡片</span>
+    <h4><code>isVisibleMessage</code>：用户提问 + 助手最终回答</h4>
+    <p>
+      轮 A 只留第 5 号和第 8 号。第 6 号工具调用、第 7 号工具结果不交给写便利贴的模型。
+      每张超过 400 个字符的只取开头，后面加 <code>…</code>。
+    </p>
+  </div>
+
+  <div class="branch-card warn">
+    <span class="tag">⑤ 分支 · 试装</span>
+    <h4>摘要请求超预算 → <code>break</code></h4>
+    <p>
+      把「已经挑好的 + 这一轮」拼成候选请求：一条系统指令（<code>summaryInstruction</code>），
+      加一条装着旧便利贴和挑中原话的用户消息。
+      候选请求比书包容量大，这一轮就留到以后再写。
+    </p>
+  </div>
+
+  <div class="branch-card good">
+    <span class="tag">⑥ 装得下 → 记账</span>
+    <h4>覆盖点往前推一轮</h4>
+    <p>
+      轮 A 记账后 <code>coveredThroughSequence = 8</code>，<code>displacedInput</code> 加上第 5、8 号的大小。
+      轮 B 再走一遍 ③–⑥：9 = 8 + 1 ✓，10 = 8 + 2 ✓，装得下，覆盖点推到 <strong>10</strong>。
+    </p>
+  </div>
+
+  <div class="branch-card bad">
+    <span class="tag">⑦ 分支 · 收尾</span>
+    <h4>覆盖点没动 → 返回 <code>undefined</code></h4>
+    <p>会落到这里的四种情况：</p>
+    <ol>
+      <li><code>omitted</code> 是空的，没有被挤出去的卡片</li>
+      <li>第一轮的序号接不上旧便利贴</li>
+      <li>第一轮停在工具调用或工具结果，没有最终回答</li>
+      <li>第一轮的摘要请求就超预算</li>
+    </ol>
+    <div class="verdict">
+      这时不会请求模型，<code>summaryModelCallCount</code> 也不加 1，因为计数写在 <code>if (!batch) return input</code> 之后。
+    </div>
+  </div>
+
+  <div class="branch-card">
+    <span class="tag">容易漏看</span>
+    <h4>覆盖点是程序算的，不是模型说的</h4>
+    <p>
+      模型只负责写便利贴上的字。贴到第几号，取的是每轮最后一张卡片的序号。
+      所以第 6、7 号虽然没交给模型，覆盖点照样越过它们，下次这四张都不再以原文发送。
+    </p>
+  </div>
+
+  <div class="branch-card">
+    <span class="tag">容易漏看</span>
+    <h4><code>displacedInput</code> 只算看得见的卡片</h4>
+    <p>
+      它是 <code>summarizeHistory</code>（<code>compaction.ts:119</code>）验收便利贴的门槛：新便利贴必须比它小才采用。
+      工具调用和工具结果没算进去，门槛偏小，要求更严：
+      新便利贴至少要比「旧便利贴 + 这些问答原话」更省地方。
+    </p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">06</span>打包机里的三道关口</h2>
+
+  <div class="gate">
+    <div class="gate-head">
+      <span class="gate-no">关口一</span>
+      <span class="gate-title">本轮消息</span>
+      <span class="gate-fn">fitCurrentTurn · context.ts:188</span>
+    </div>
+    <div class="gate-body">
+      <p>本轮是「主角」，必须装进去，也不能靠便利贴救。装不下只能撕工具结果。</p>
+      <div class="line">称重：system + 本轮 + 工具说明书 ≤ 书包？</div>
+      <div class="line yes">是 → 过关</div>
+      <div class="line no">否 → 撕第一档：素材结果去掉描述和标签，保留 ID/名称/类型/链接 → 重称</div>
+      <div class="line no">还是否 → 撕第二档：链接也去掉 → 重称</div>
+      <div class="line boom">还是否 → 💥 413：本轮输入超出预算，请缩短消息</div>
+    </div>
+  </div>
+
+  <div class="gate">
+    <div class="gate-head">
+      <span class="gate-no">关口二</span>
+      <span class="gate-title">便利贴</span>
+      <span class="gate-fn">buildModelInput</span>
+    </div>
+    <div class="gate-body">
+      <div class="line">没有便利贴 → 不带</div>
+      <div class="line no">有，但加上后超容量 → 不带（便利贴仍存在会话里，以后再用）</div>
+      <div class="line yes">有，并且装得下 → 带（summaryIncluded = true）</div>
+    </div>
+  </div>
+
+  <div class="gate">
+    <div class="gate-head">
+      <span class="gate-no">关口三</span>
+      <span class="gate-title">历史</span>
+      <span class="gate-fn">fitRecentHistory · context.ts:216</span>
+    </div>
+    <div class="gate-body">
+      <div class="line">把历史按「用户提问」切成整轮（groupCompleteTurns）</div>
+      <div class="line">从最新一轮往前：</div>
+      <div class="line yes">这一整轮放得下 → 装进去，继续看前一轮</div>
+      <div class="line no">放不下 → 立刻停，不跳过它去装更老的</div>
+      <div class="line">开头不成整轮的消息（比如历史从一条工具结果开始）→ 永远不装</div>
+    </div>
+  </div>
+
+  <p>
+    为什么不跳过？因为历史里如果有「没有问题的回答」或「没有回答的问题」，模型会误读。
+    <strong>要么整轮带走，要么整轮留下。</strong>
+  </p>
+
+  <p>
+    结果就是两个数：保留了哪些卡片、<code>droppedHistoryMessages</code> 是多少。
+    后者正是下一次写便利贴的原料。
+  </p>
+</section>
+
+<section>
+  <h2><span class="num">07</span>用一串数字走完</h2>
+
+  <p>lesson 模式，书包 13,952 颗糖：</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>步骤</th><th style="text-align:right">花掉</th><th style="text-align:right">剩余</th><th>发生了什么</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>system + 工具说明</td><td style="text-align:right">1,200</td><td style="text-align:right">12,752</td><td>关口一</td></tr>
+        <tr><td>本轮消息</td><td style="text-align:right">800</td><td style="text-align:right">11,952</td><td>关口一过关</td></tr>
+        <tr><td>便利贴</td><td style="text-align:right">150</td><td style="text-align:right">11,802</td><td>关口二：装得下</td></tr>
+        <tr><td>最新一轮历史</td><td style="text-align:right">3,000</td><td style="text-align:right">8,802</td><td>关口三</td></tr>
+        <tr><td>前一轮</td><td style="text-align:right">3,000</td><td style="text-align:right">5,802</td><td>继续</td></tr>
+        <tr><td>再前一轮</td><td style="text-align:right">3,000</td><td style="text-align:right">2,802</td><td>继续</td></tr>
+        <tr><td>还要再往前</td><td style="text-align:right">—</td><td style="text-align:right">—</td><td>💥 放不下，停</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    结果：保留最近 3 轮，丢了 12 张旧卡片 → <code>dropped = 12</code>。
+  </p>
+
+  <p>
+    因为 <code>dropped &gt; 0</code> 且本轮没写过便利贴 → 进 <code>summarizeContext</code>。
+    便利贴写好后覆盖到第 12 号卡片，重新打包时 <code>liveHistory</code> 从第 13 号开始，书包一下就松快了。
+  </p>
+</section>
+
+<section>
+  <h2><span class="num">08</span>所有失败情况</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>情况</th><th>代码里的结果</th><th>用户看到</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>本轮自己就超预算</td>
+          <td>413 <code>AGENT_INPUT_BUDGET_EXCEEDED</code></td>
+          <td>「缩短消息或缩小查询范围」</td>
+        </tr>
+        <tr>
+          <td>摘要模型超时 / 503</td>
+          <td>记 warn，用截断的历史继续</td>
+          <td>正常回答，只是记不清太旧的事</td>
+        </tr>
+        <tr>
+          <td>便利贴太长 / 没省空间</td>
+          <td>不采用，同上</td>
+          <td>同上</td>
+        </tr>
+        <tr>
+          <td>便利贴自己装不进请求</td>
+          <td>不采用，同上</td>
+          <td>同上</td>
+        </tr>
+        <tr>
+          <td>用户按停止</td>
+          <td><code>throwIfAborted()</code>，本轮真正中止</td>
+          <td>已停止</td>
+        </tr>
+        <tr>
+          <td>旧卡片被挤出去</td>
+          <td>模型可调用 <code>read_session_history</code> 查原文</td>
+          <td>工具结果里能看到</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="cheatsheet">
+    <span class="kicker">一句话小抄</span>
+    <p>
+      拿掉已摘要的 → 打包 → 装不下就写便利贴 → 用新便利贴再打包 → 发给模型。
+    </p>
+    <p>
+      便利贴写坏了不要紧：<strong>模型只是少知道点旧事，这一题照样答。</strong>
+    </p>
+  </div>
+</section>
+
+<footer>
+  对应代码：<code>src/harness/agent/agent.service.ts</code>（<code>prepareTurnInput</code>、<code>summarizeContext</code>）、
+  <code>src/harness/agent/context.ts</code>（<code>buildModelInput</code> 与三道关口）、
+  <code>src/harness/agent/compaction.ts</code>（<code>prepareHistorySummary</code>、<code>summarizeHistory</code>）。
+  行号随重构可能漂移，以函数名为准。
+</footer>
+
+</main>
+</body>
+</html>

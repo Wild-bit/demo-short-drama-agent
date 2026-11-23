@@ -1,6 +1,30 @@
 name: short-drama-agent
 
 services:
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    init: true
+    ports:
+      - "127.0.0.1:5173:5173"
+    environment:
+      API_PROXY_TARGET: http://api:3000
+      VITE_VIDEO_MODEL: ${ALIYUN_AI_VIDEO_MODEL:-wan3.0-video}
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./web/src:/app/web/src
+      - ./web/public:/app/web/public
+      - ./web/index.html:/app/web/index.html:ro
+      - ./web/vite.config.ts:/app/web/vite.config.ts:ro
+      - ./src/domain:/app/src/domain:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
   api:
     build:
       context: .
@@ -22,6 +46,18 @@ services:
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
       AGENT_CONTEXT_PROFILE: ${AGENT_CONTEXT_PROFILE:-}
       AGENT_CONTEXT_WINDOW_TOKENS: ${AGENT_CONTEXT_WINDOW_TOKENS:-}
+      ASSET_CDN_ORIGIN: ${ASSET_CDN_ORIGIN:-}
+      COS_BUCKET: ${COS_BUCKET:-}
+      COS_REGION: ${COS_REGION:-}
+      COS_STS_SECRET_ID: ${COS_STS_SECRET_ID:-}
+      COS_STS_SECRET_KEY: ${COS_STS_SECRET_KEY:-}
+      ALIYUN_AI_API_KEY: ${ALIYUN_AI_API_KEY:-}
+      ALIYUN_AI_REGION: ${ALIYUN_AI_REGION:-cn-beijing}
+      ALIYUN_AI_WORKSPACE_ID: ${ALIYUN_AI_WORKSPACE_ID:-}
+      ALIYUN_AI_BASE_URL: ${ALIYUN_AI_BASE_URL:-https://maas.qianwenaiapi.com/api/v1}
+      ALIYUN_AI_IMAGE_MODEL: ${ALIYUN_AI_IMAGE_MODEL:-wan2.7-image}
+      ALIYUN_AI_KLING_IMAGE_MODEL: ${ALIYUN_AI_KLING_IMAGE_MODEL:-kling/kling-v3-omni-image-generation}
+      ALIYUN_AI_VIDEO_MODEL: ${ALIYUN_AI_VIDEO_MODEL:-wan3.0-video}
     depends_on:
       mysql:
         condition: service_healthy

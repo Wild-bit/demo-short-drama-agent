@@ -11,6 +11,7 @@ export const searchUserAssetsDefinition = {
     "当前按名称和描述匹配，请使用一个简短关键词，" +
     "例如墨墨、Aurora、探头；不要拼接成长句。" +
     "可能返回多个候选，也可能没有匹配结果。" +
+    "界面会自动把命中的图片和视频渲染为可视化素材卡片，文字回答只需简洁归纳数量、角色/场景特点或选择建议，不要在正文中逐条粘贴原始 URL 链接。" +
     "此工具不生成新素材。",
   parameters: {
     type: "object",
@@ -54,6 +55,7 @@ export class SearchUserAssetsTool implements AgentTool {
         type: asset.type,
         description: asset.description,
         tags: asset.tags,
+        url: asset.url,
       })),
     };
   }

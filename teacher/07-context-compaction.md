@@ -100,7 +100,7 @@ Deep Agents 提供文件读写工具，把大段内容放到可按需读取的�
 
 用户先搜索墨墨，系统向用户展示六个候选。随后对话继续，旧工具结果达到裁剪阈值。下一次用户说「用刚才第三张当参考」，Harness 需要用**当时实际展示的候选顺序**来解析引用。数据库当前排序或搜索工具原始顺序可能与当时展示的顺序不同。
 
-只留下「搜到六张图」不足以续接。课程示例要把展示顺序与对应的 `assetId` 一起保留或回查，比如「候选 3 对应 `asset_3`」，具体标签和长描述可以到需要时按 ID 加载。本课可用已归档的助手回答（含有序名称和 ID）与用户确认原话还原选择。第十课再把确认采用的素材写入项目，使同一项目里的新对话也能使用。找不到当时展示的顺序，也没有明确选中记录时，请用户确认具体是哪张。
+只留下「搜到六张图」不足以续接。课程示例要把展示顺序与对应的 `assetId` 一起保留或回查，比如「候选 3 对应 `asset_3`」，具体标签和长描述可以到需要时按 ID 加载。本课可用本会话已归档的助手回答（含有序名称和 ID）与用户确认原话还原选择。第十课计划把选中的资产 ID 保存在项目分镜，供工作台重开时展示。新会话要找墨墨，可按名称调用资产查询工具；「刚才第三张」的含义只在原会话里核对。找不到当时展示的顺序，也没有明确选中记录时，请用户确认具体是哪张。
 
 最后用固定消息和工具结果比较以下情况：
 
@@ -281,7 +281,7 @@ this.logger.log({
 
 假设这个会话里有一段很长的早期对话，后来你搜索了墨墨，现在追问「刚才第三张叫什么」。在固定样例里，带上全部历史要占 2,793 个估算单位。把输入预算设为 700，去掉最老的两条消息后，请求估算为 621。最近那轮「搜索墨墨」的用户消息、模型工具调用、工具结果和模型回答一起保留。发出的顺序依然是系统规则、留下的历史和本轮追问。
 
-`buildModelInput` 先精简本轮的工具结果，再给系统规则、工具定义和本轮消息计数。从最新历史往回读，每遇到一条用户消息，就拿到了这轮对话的边界。整轮能放下才加入请求。某轮超限时停止往前选，保留连续的近期历史。老消息只从当前模型请求里移出，MySQL 的完整记录可用于接下来的摘要和回查。
+`buildModelInput` 先精简本轮的工具结果，再给系统规则、工具定义和本轮消息计数。剩下的预算给历史：先把历史按用户消息切成完整轮次，再从最新一轮往前选，整轮能放下才加入请求。某轮超限时停止往前选，保留连续的近期历史。老消息只从当前模型请求里移出，MySQL 的完整记录可用于接下来的摘要和回查。
 
 ### 为什么按整轮移出？
 
@@ -401,16 +401,16 @@ type ContextCheckpoint = {
 
 7.2 初步精简搜索结果，把共有标签提到 `sharedTags`。如果本轮结果仍太大，自动降级为保留顺序、ID、名称和类型的名单。模型仍收到配对的工具调用与结果，原始结果继续保存在本轮消息中。固定响应测试里只执行了一次搜索，第二次模型调用已在预算内。
 
-7.3 先给系统规则、工具定义和本轮消息留空间，再放得下已有摘要时带上摘要，剩余空间给近期历史。倒着遇到 `role === "user"` 代表找到了这轮的开头，因此判断这轮能否**整体加入**。已经结束的轮次包含最终助手回答。如果搜索刚到工具结果，这轮还在处理，结果会供下一次模型调用使用。
+7.3 先给系统规则、工具定义和本轮消息留空间，再放得下已有摘要时带上摘要，剩余空间给近期历史。历史先按用户消息切成完整轮次，从最新一轮往前判断能否**整体加入**；开头不成整轮的消息不参与选择。已经结束的轮次包含最终助手回答。如果搜索刚到工具结果，这轮还在处理，结果会供下一次模型调用使用。
 
 ```ts
-if (message.role !== "user") {
-  continue;
+// fitRecentHistory：从最新一轮往前，整轮放得下才加入
+for (let index = turns.length - 1; index >= 0; index -= 1) {
+  const turnTokens = measureMessages(turns[index]);
+  if (usedTokens + keptTokens + turnTokens > inputBudgetTokens) break;
+  keptTokens += turnTokens;
+  keptMessageCount += turns[index].length;
 }
-if (estimatedInputTokens + turnTokens > inputBudgetTokens) {
-  break;
-}
-droppedHistoryMessages = index;
 ```
 
 只移出工具结果会让助手的调用 ID 缺少对应结果。保留或移出整轮可以保住配对和原问答关系。走读可用 `lesson` 模式复现，默认输入预算为 13,952 个估算单位，来自 16,000 的应用窗口扣除 1,024 的输出预留和 1,024 的估算余量。这个发送前的字节估算和响应里的实际 token 是两项数据。[代码：请求组装和预算判断](../src/harness/agent/context.ts)
@@ -421,30 +421,31 @@ droppedHistoryMessages = index;
 
 本例第 5–9 条的工具结果很长，整轮放不下，但旧摘要和新问题已经可以组装成一份可发送的请求。Harness 才尝试另发一次摘要请求。这里的「摘要模型」还是同一个 DeepSeek。摘要调用的系统指令是 `compaction.ts` 里的 `summaryInstruction`，资料包括旧摘要、第 5 条提问和第 9 条最终回答。DeepSeek 负责写文字，程序从已有原始消息算出新的覆盖位置 `9`。
 
-如果这轮只到工具结果，还没有最终助手回答，就不把它算进摘要批次。摘要也要符合输入预算，返回的文字要非空、足够短，并能装进正式模型请求。下面是 Agent 的关键分支，保留了请求替换和失败后的执行顺序：
+如果这轮只到工具结果，还没有最终助手回答，就不把它算进摘要批次。摘要也要符合输入预算，返回的文字要非空、足够短，并能装进正式模型请求。下面是 Agent 的关键分支，保留了请求替换和失败后的执行顺序。主循环先调 `prepareTurnInput` 准备输入，历史被截断且本轮尚未摘要时，才进入 `summarizeContext`：
 
 ```ts
-let input = assembleInput(liveHistory, activeCheckpoint);
-
-// 准备好本轮可压缩的批次后
+// summarizeContext：采用合格摘要时替换输入，失败时沿用原输入
 try {
   const { checkpoint } = await summarizeHistory(batch);
+  let nextInput = input;
   if (checkpoint) {
     const updated = assembleInput(
       liveHistory.filter(({ sequence }) => sequence > checkpoint.coveredThroughSequence),
       checkpoint,
     );
     if (updated.inputSizes.summaryIncluded) {
-      activeCheckpoint = checkpoint;
-      input = updated;
+      turn.activeCheckpoint = checkpoint;
+      nextInput = updated;
     }
   }
+  return nextInput;
 } catch {
   this.logger.warn({ event: "context_summary_failed" });
+  return input;
 }
 
-const { request } = input;
-const response = await generateDeepSeekText(request);
+// 主循环拿到 prepareTurnInput 的返回值后，用它发起正式模型调用
+const response = await this.callModel(input, trace, turn);
 ```
 
 摘要请求如果超时或返回 503，代码进入 `catch`，继续用原先准备好的 `input` 做正式回答。正式回答若从旧摘要就能读到「主角是墨墨」，它可以直接写一句晚安台词。需要未放进去的细节时，可以走下一步的原话回查。[代码：摘要生成](../src/harness/agent/compaction.ts) · [代码：Agent 主循环](../src/harness/agent/agent.service.ts)

@@ -54,6 +54,7 @@ test('第六次请求搜索时停止；新的会话轮次重新计数', async (t
   const ids = ['s1', 's2', 's3', 's4', 's5'];
   assert.deepEqual(result.toolCalls.map(call => call.id), ids);
   assert.deepEqual(newMessages.filter(m => m.role === 'tool').map(m => m.toolCallId), ids);
+  assert.deepEqual(newMessages.filter(m => m.role === 'tool').map(m => m.toolName), ids.map(() => 'search_user_assets'));
   assert.deepEqual(newMessages.flatMap(m => (m.toolCalls ?? []).map(call => call.id)), ids);
   assert.deepEqual(newMessages.at(-1), { role: 'assistant', content: result.text });
 

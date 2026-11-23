@@ -1,0 +1,1155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>短剧工坊 · 全量函数调用关系与渲染流程图</title>
+  <style>
+    :root {
+      --bg: #090b10;
+      --bg-panel: #10141e;
+      --bg-card: #151b28;
+      --bg-hover: #1c2436;
+      --line: rgba(255, 255, 255, 0.09);
+      --line-strong: rgba(255, 255, 255, 0.18);
+      --text: #eef2fa;
+      --text-sec: #b5bfd1;
+      --muted: #7e899f;
+      --amber: #eab044;
+      --amber-soft: rgba(234, 176, 68, 0.14);
+      --cyan: #38bdf8;
+      --blue: #60a5fa;
+      --purple: #a78bfa;
+      --pink: #f472b6;
+      --orange: #fb923c;
+      --green: #34d399;
+      --yellow: #facc15;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 24px;
+      background: rgba(11, 14, 22, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--line);
+      flex-wrap: wrap;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--amber);
+      box-shadow: 0 0 12px var(--amber);
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+    }
+    .brand small {
+      color: var(--muted);
+      font-size: 12px;
+      margin-left: 8px;
+    }
+    .stats {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      font-size: 12px;
+      color: var(--text-sec);
+    }
+    .stats b {
+      color: var(--amber);
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+
+    .page {
+      max-width: 1680px;
+      margin: 0 auto;
+      padding: 18px 24px 56px;
+      display: grid;
+      gap: 22px;
+    }
+
+    /* Scenario Tabs */
+    .tabs-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .tab-btn {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: var(--bg-panel);
+      color: var(--text-sec);
+      padding: 7px 13px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 550;
+      cursor: pointer;
+      transition: all 0.16s ease;
+    }
+    .tab-btn:hover {
+      border-color: var(--line-strong);
+      color: var(--text);
+      background: var(--bg-hover);
+    }
+    .tab-btn.active {
+      background: var(--amber-soft);
+      border-color: rgba(234, 176, 68, 0.6);
+      color: #f9cc74;
+    }
+
+    /* Diagram Stage */
+    .stage-wrap {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 14px;
+      min-height: 620px;
+    }
+    .stage-wrap.is-expanded {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: var(--bg);
+      padding: 14px;
+      min-height: 100vh;
+    }
+    @media (max-width: 1120px) {
+      .stage-wrap {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .canvas-box {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background:
+        radial-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px),
+        #0b0e15;
+      background-size: 22px 22px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 580px;
+    }
+    .canvas-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 14px;
+      background: rgba(16, 20, 30, 0.88);
+      border-bottom: 1px solid var(--line);
+      font-size: 12.5px;
+      color: var(--text-sec);
+      flex-wrap: wrap;
+    }
+    .canvas-tools {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .tool-btn {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: var(--bg-card);
+      color: var(--text);
+      border-radius: 7px;
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .tool-btn:hover {
+      border-color: var(--amber);
+      color: #f9cc74;
+    }
+    .zoom-readout {
+      font-family: var(--mono);
+      font-size: 11.5px;
+      min-width: 46px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    .svg-viewport {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+      user-select: none;
+      overflow: hidden;
+    }
+    .svg-viewport.dragging {
+      cursor: grabbing;
+    }
+
+    .legend {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 7px 12px;
+      border-radius: 9px;
+      background: rgba(13, 17, 26, 0.9);
+      border: 1px solid var(--line);
+      font-size: 11.5px;
+      color: var(--text-sec);
+      pointer-events: none;
+    }
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .legend i {
+      width: 9px;
+      height: 9px;
+      border-radius: 3px;
+      display: inline-block;
+    }
+
+    /* Inspector Panel */
+    .inspector {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--bg-panel);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .inspector-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: fit-content;
+      font-size: 11.5px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-sec);
+    }
+    .inspector h3 {
+      margin: 0;
+      font-family: var(--mono);
+      font-size: 15px;
+      color: #f9cc74;
+      word-break: break-word;
+    }
+    .inspector-path {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      padding: 7px 10px;
+      background: #0a0d14;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      word-break: break-all;
+    }
+    .inspector-desc {
+      margin: 0;
+      font-size: 13.5px;
+      line-height: 1.68;
+      color: var(--text);
+    }
+    .rel-box {
+      border-top: 1px solid var(--line);
+      padding-top: 12px;
+      display: grid;
+      gap: 8px;
+      font-size: 12.5px;
+    }
+    .rel-box strong {
+      color: var(--text-sec);
+      display: block;
+      margin-bottom: 4px;
+    }
+    .pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .code-pill {
+      font-family: var(--mono);
+      font-size: 11.5px;
+      padding: 2px 7px;
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.055);
+      border: 1px solid var(--line);
+      color: var(--text-sec);
+    }
+    .open-btn {
+      margin-top: auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      text-decoration: none;
+      background: var(--amber);
+      color: #141008;
+      font-weight: 650;
+      font-size: 13px;
+      padding: 9px 14px;
+      border-radius: 9px;
+      transition: filter 0.15s;
+    }
+    .open-btn:hover {
+      filter: brightness(1.08);
+    }
+
+    /* Dictionary Section */
+    .dict-section {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--bg-panel);
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+    }
+    .dict-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .dict-head h2 {
+      margin: 0;
+      font-size: 16px;
+    }
+    .search-input {
+      width: min(360px, 100%);
+      background: #0a0d14;
+      border: 1px solid var(--line-strong);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 9px;
+      font-size: 13px;
+      outline: none;
+    }
+    .search-input:focus {
+      border-color: var(--amber);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+      text-align: left;
+    }
+    th {
+      background: #141926;
+      color: var(--text-sec);
+      font-weight: 600;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+    }
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      line-height: 1.55;
+    }
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.025);
+    }
+    .fn-name {
+      font-family: var(--mono);
+      color: #f8cd73;
+      font-weight: 600;
+      font-size: 12px;
+      display: block;
+    }
+    .fn-file {
+      font-family: var(--mono);
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .mod-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      white-space: nowrap;
+    }
+    .mod-badge i {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .jump-link {
+      display: inline-block;
+      text-decoration: none;
+      color: var(--amber);
+      border: 1px solid rgba(234, 176, 68, 0.4);
+      padding: 3px 9px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      white-space: nowrap;
+    }
+    .jump-link:hover {
+      background: var(--amber-soft);
+    }
+
+    /* SVG Node Hover */
+    .dag-node {
+      cursor: pointer;
+    }
+    .dag-node:hover rect.node-box {
+      stroke: #eab044;
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <h1>短剧工坊 · 全量函数调用关系与浏览器渲染流程图</h1>
+      <small>离线单文件版（支持滚轮缩放 / 拖拽画布 / 点击节点查看上下游并唤起 Cursor 定位源码）</small>
+    </div>
+    <div class="stats">
+      <span>核心流程图 <b id="stat-flows">7</b> 张</span>
+      <span>模块分层 <b>7</b> 层</span>
+      <span>收录函数条目 <b id="stat-fns">0</b> 组（覆盖全工程 130+ 函数）</span>
+    </div>
+  </header>
+
+  <main class="page">
+    <nav class="tabs-bar" id="scenario-tabs" aria-label="流程图切换"></nav>
+
+    <section class="stage-wrap" id="stage-wrap">
+      <div class="canvas-box">
+        <div class="canvas-head">
+          <span id="scenario-summary"></span>
+          <div class="canvas-tools">
+            <button type="button" class="tool-btn" id="btn-zoom-out">－</button>
+            <span class="zoom-readout" id="zoom-label">100%</span>
+            <button type="button" class="tool-btn" id="btn-zoom-in">＋</button>
+            <button type="button" class="tool-btn" id="btn-fit">适配窗口</button>
+            <button type="button" class="tool-btn" id="btn-expand">全屏画布</button>
+          </div>
+        </div>
+
+        <svg class="svg-viewport" id="dag-svg" role="img" aria-label="函数调用关系流程图">
+          <defs>
+            <marker id="arrow-def" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+              <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="#5e6b85" />
+            </marker>
+            <marker id="arrow-hi" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+              <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="#eab044" />
+            </marker>
+            <marker id="arrow-loop" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+              <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="#a78bfa" />
+            </marker>
+          </defs>
+          <g id="dag-viewport"></g>
+        </svg>
+
+        <div class="legend" id="legend-bar"></div>
+      </div>
+
+      <aside class="inspector" id="inspector">
+        <div class="inspector-tag" id="insp-group"></div>
+        <h3 id="insp-title">点击左侧节点查看详情</h3>
+        <div class="inspector-path" id="insp-path"></div>
+        <p class="inspector-desc" id="insp-desc"></p>
+        <div class="rel-box">
+          <div>
+            <strong>上游调用方（谁调用它）</strong>
+            <div class="pill-list" id="insp-in"></div>
+          </div>
+          <div>
+            <strong>下游被调方（它调用谁）</strong>
+            <div class="pill-list" id="insp-out"></div>
+          </div>
+        </div>
+        <a class="open-btn" id="insp-open" href="#">在 Cursor 中打开源码行</a>
+      </aside>
+    </section>
+
+    <section class="dict-section">
+      <div class="dict-head">
+        <h2>全工程函数与方法调用字典（前后端 100% 覆盖）</h2>
+        <input type="search" class="search-input" id="dict-search" placeholder="搜索函数名、文件名、HTTP 路径（如 /sessions/stream）或课程号…" />
+      </div>
+      <div class="tabs-bar" id="group-tabs"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>模块</th>
+              <th>函数 / 方法签名 & 文件位置</th>
+              <th>课程</th>
+              <th>核心职责与数据流说明</th>
+              <th>上游调用方 → 下游被调方</th>
+              <th>跳转</th>
+            </tr>
+          </thead>
+          <tbody id="dict-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const WORKSPACE_ROOT = "/Users/laizhenhang/Desktop/code/demo-short-drama-agent";
+
+    const GROUPS = {
+      web: { label: "Web 前端工作台", color: "#38bdf8" },
+      auth: { label: "认证与身份守卫", color: "#facc15" },
+      session: { label: "会话、SSE 与运行轨迹", color: "#60a5fa" },
+      agent: { label: "Agent Loop、上下文与工具", color: "#a78bfa" },
+      gateway: { label: "DeepSeek 网关与基础设施", color: "#f472b6" },
+      projects: { label: "项目、分镜与确认", color: "#fb923c" },
+      assets: { label: "素材库与腾讯云 COS", color: "#34d399" }
+    };
+
+    const SCENARIOS = [
+      {
+        id: "overview-arch",
+        title: "0. 全站七层总览架构图",
+        direction: "TB",
+        summary: "从浏览器挂载入口到 NestJS 控制器、Harness 编排器、工具系统、MySQL 事务与外部 DeepSeek / COS 的全局调用拓扑。",
+        nodes: [
+          { id: "n_web_boot", label: "main.tsx -> App()", sub: "web/src/App.tsx", line: 28, group: "web", detail: "浏览器入口：readAuth 校验本地 Token，route() 解析 '/' 与 '/projects/:id'，分发 LoginPage / ProjectList / Workspace。" },
+          { id: "n_web_ws", label: "Workspace + Editor + Confirmation", sub: "web/src/components/Workspace.tsx", line: 51, group: "web", detail: "三段式导播台：四路并发拉取项目/最新分镜/会话列表/确认记录，管理草稿编辑、乐观锁保存、采用建议弹窗与生成前确认。" },
+          { id: "n_web_chat", label: "Chat + Thread + ChatUiBlocks", sub: "web/src/components/Chat.tsx", line: 67, group: "web", detail: "即梦式会话侧栏 + 多会话 hidden 保活消息流 + A2UI 受控素材画廊组件 ChatAssetGallery。" },
+          { id: "n_web_api", label: "api() / uploadAsset() / streamTurn()", sub: "web/src/api.ts", line: 14, group: "web", detail: "前端统一请求层：注入 Bearer Token、401 过期广播、FormData 上传与 SSE 分块流式解析。" },
+          { id: "n_guard", label: "AuthGuard + @CurrentUserId", sub: "src/auth/auth.guard.ts", line: 8, group: "auth", detail: "拦截全部受保护路由，AuthService.authenticate 校验 SHA-256 Token 哈希并注入可信 userId。" },
+          { id: "n_c_proj", label: "Projects & Storyboards Controllers", sub: "src/projects/storyboards.controller.ts", line: 10, group: "projects", detail: "承载 /api/projects/* 与 /api/storyboards/* 全部零路径参数 GET/POST 接口。" },
+          { id: "n_c_sess", label: "Session & Agent Controllers", sub: "src/harness/session/session.controller.ts", line: 24, group: "session", detail: "承载 /api/sessions/*（list/create/rename/pin/delete/messages/run/stream/turn）与 /api/agent/run-once。" },
+          { id: "n_c_asset", label: "AssetsController", sub: "src/assets/assets.controller.ts", line: 24, group: "assets", detail: "承载 GET /assets/search、GET /assets/detail 与 POST /assets/upload。" },
+          { id: "n_s_svc", label: "SessionService + ActiveSessions + RunTrace", sub: "src/harness/session/session.service.ts", line: 85, group: "session", detail: "管理会话互斥运行锁、选镜准备、RunTrace 轨迹计量、expectedLastSequence 乐观锁消息追加与首句自动命名。" },
+          { id: "n_p_svc", label: "ProjectsService + StoryboardsService", sub: "src/projects/storyboards.service.ts", line: 28, group: "projects", detail: "管理项目归属排他锁、expectedVersion 分镜快照保存、confirmationId 幂等确认及项目级联事务删除。" },
+          { id: "n_agent", label: "AgentService + context + compaction", sub: "src/harness/agent/agent.service.ts", line: 58, group: "agent", detail: "ReAct 四步主循环（prepareTurnInput -> callModel -> appendAssistantTurn -> runToolBatch）：预算裁剪、按需摘要、5 次工具上限与卡片推送。" },
+          { id: "n_tools", label: "ToolRegistry + Search / Propose / Recall", sub: "src/tools/tool-registry.service.ts", line: 6, group: "agent", detail: "派发 search_user_assets、propose_storyboard（项目会话专属）与 read_session_history（归档原话回查）。" },
+          { id: "n_as_svc", label: "AssetsService + CosStorage + CosSts", sub: "src/assets/assets.service.ts", line: 39, group: "assets", detail: "魔数格式校验、STS 最小权限临时凭证缓存、COS 分块上传与 MySQL 资产登记补偿。" },
+          { id: "n_gw", label: "generateDeepSeekText + readDeepSeekStream", sub: "src/gateway/text/deepseek.ts", line: 90, group: "gateway", detail: "转换消息与工具声明（过滤空 toolCalls），通过 httpClient 调 DeepSeek 流式/非流式接口并汇总 Token 用量。" }
+        ],
+        edges: [
+          { from: "n_web_boot", to: "n_web_ws" },
+          { from: "n_web_boot", to: "n_web_chat" },
+          { from: "n_web_ws", to: "n_web_api" },
+          { from: "n_web_chat", to: "n_web_api" },
+          { from: "n_web_api", to: "n_guard", note: "Vite /api 同源代理" },
+          { from: "n_guard", to: "n_c_proj" },
+          { from: "n_guard", to: "n_c_sess" },
+          { from: "n_guard", to: "n_c_asset" },
+          { from: "n_c_proj", to: "n_p_svc" },
+          { from: "n_c_sess", to: "n_s_svc" },
+          { from: "n_c_asset", to: "n_as_svc" },
+          { from: "n_s_svc", to: "n_p_svc", note: "归属与选镜校验" },
+          { from: "n_s_svc", to: "n_agent" },
+          { from: "n_agent", to: "n_tools" },
+          { from: "n_agent", to: "n_gw" },
+          { from: "n_tools", to: "n_as_svc", note: "searchAssets" }
+        ]
+      },
+      {
+        id: "browser-render-pipeline",
+        title: "1. 浏览器前端渲染与 SSE 上屏路径",
+        direction: "TB",
+        summary: "访问 http://127.0.0.1:5173 后，从 index.html 挂载、路由判断、四路并发初始化，到 SSE 字节流逐帧驱动 React DOM 局部重绘的完整前端路径。",
+        nodes: [
+          { id: "b_html", label: "index.html -> main.tsx", sub: "web/src/main.tsx", line: 1, group: "web", detail: "加载 style.css，通过 createRoot(#root).render(<App />) 启动 React 19 应用树。" },
+          { id: "b_app", label: "App(): readAuth() + route()", sub: "web/src/App.tsx", line: 28, group: "web", detail: "校验 localStorage 登录态有效期，正则解析 pathname 是否为 /projects/:projectId，监听 popstate 与 auth-expired。" },
+          { id: "b_lobby", label: "LoginPage / ProjectList", sub: "web/src/App.tsx", line: 194, group: "web", detail: "未登录渲染登录页；根路径 '/' 请求 GET /api/projects/list 渲染短剧项目卡片网格与个人素材库入口。" },
+          { id: "b_ws_init", label: "Workspace 四路 Promise.all 初始化", sub: "web/src/components/Workspace.tsx", line: 78, group: "web", detail: "并发拉取 /projects/detail、/storyboards/latest、/sessions/list、/storyboards/confirmations，合并 sessionStorage 本地未保存草稿。" },
+          { id: "b_split", label: "StudioSplit 双栏保活挂载", sub: "web/src/components/StudioSplit.tsx", line: 7, group: "web", detail: "通过 CSS 变量 --editor-track / --chat-track 控制宽度，展开对话时仅隐藏左栏视觉宽度而不卸载 Editor DOM。" },
+          { id: "b_editor", label: "Editor -> ShotFramePreview / AssetChip", sub: "web/src/components/Editor.tsx", line: 23, group: "web", detail: "渲染剧本舱与 16:9 分镜宫格/精修卡片；每个参考图 ID 独立异步调 GET /api/assets/detail 渲染缩略图。" },
+          { id: "b_chat_keep", label: "Chat: visited 池 + hidden 多会话保活", sub: "web/src/components/Chat.tsx", line: 388, group: "web", detail: "已访问过的每个会话挂载独立 <Thread>，切换会话仅改 DOM hidden 属性，后台会话流式接收不中断并驱动侧栏 Spinner。" },
+          { id: "b_sse_pipe", label: "streamTurn: TextDecoder -> EventSourceParser", sub: "web/src/api.ts", line: 70, group: "web", detail: "将 fetch 响应字节流解码为 UTF-8 文本，再按 '\\n\\n' 空行边界切出标准 SSE 帧（兼容半包与粘包）。" },
+          { id: "b_thread_evt", label: "Thread.send switch(event.type)", sub: "web/src/components/Chat.tsx", line: 575, group: "web", detail: "按 started / step_started / ui_block / text_delta / completed 局部更新消息状态（多跳回答经 appendAssistantSegment 分段追加）并自动贴底滚动。" },
+          { id: "b_dom_cards", label: "ChatAssetGallery + 分镜建议卡 + LinkedText", sub: "web/src/components/ChatUiBlocks.tsx", line: 30, group: "web", detail: "ui_block 先行渲染图片/视频网格与灯箱；text_delta 按 modelCallNumber 分段追加绘字；completed 挂载采用建议按钮与运行轨迹入口。" }
+        ],
+        edges: [
+          { from: "b_html", to: "b_app" },
+          { from: "b_app", to: "b_lobby", note: "未登录 或 路径 '/'" },
+          { from: "b_app", to: "b_ws_init", note: "路径 '/projects/:id'" },
+          { from: "b_ws_init", to: "b_split" },
+          { from: "b_split", to: "b_editor" },
+          { from: "b_split", to: "b_chat_keep" },
+          { from: "b_chat_keep", to: "b_sse_pipe", note: "提交消息 POST /sessions/stream" },
+          { from: "b_sse_pipe", to: "b_thread_evt" },
+          { from: "b_thread_evt", to: "b_dom_cards" }
+        ]
+      },
+      {
+        id: "sse-agent-loop",
+        title: "2. 后端 SSE 对话与 Agent Loop 主链路",
+        direction: "TB",
+        summary: "POST /api/sessions/stream → 互斥锁与选镜准备 → runWithHistory 四步循环（1. prepareTurnInput 预算裁剪/摘要 → 2. callModel 流式请求 → 3. 上限检查与 appendAssistantTurn → 4. runToolBatch 执行工具）→ appendMessages 事务提交。",
+        nodes: [
+          { id: "s_ctrl", label: "SessionController.streamMessage", sub: "src/harness/session/session.controller.ts", line: 108, group: "session", detail: "校验 sessionId 与 message，绑定连接断开到 AbortController；首次发事件才 writeHead(200)，写缓冲满时 await once(res, 'drain')。" },
+          { id: "s_lock", label: "ActiveSessionsService.tryAcquire", sub: "src/projects/active-sessions.service.ts", line: 12, group: "projects", detail: "同一会话已有运行中请求时立即抛 409 Conflict，结束后在 finally 中 release。" },
+          { id: "s_prep", label: "findOwnedSession + StoryboardsService.prepareTurn", sub: "src/projects/storyboards.service.ts", line: 46, group: "projects", detail: "校验会话归属；项目会话读取最新 baseVersion，若带 selectedShot 则核对版本一致并单独取出该镜头。" },
+          { id: "s_trace_init", label: "创建 running 记录 + RunTrace.emit('started')", sub: "src/harness/session/session.service.ts", line: 457, group: "session", detail: "在 agent_run_records 插入 running 行获取 runId，发出首条 SSE started，读取历史记录下 expectedLastSequence。" },
+          { id: "a_entry", label: "runWithHistory -> buildTurnRegistry", sub: "src/harness/agent/agent.service.ts", line: 70, group: "agent", detail: "初始化 TurnState 轮次状态，通过 buildTurnRegistry 动态挂载 read_session_history 与 propose_storyboard，启动四步 while(true) 循环。" },
+          { id: "a_ctx", label: "1. prepareTurnInput -> buildModelInput", sub: "src/harness/agent/agent.service.ts", line: 161, group: "agent", detail: "过滤已摘要历史，调用 buildModelInput 整轮预算裁剪（压缩共有标签、注入选镜、剥离前端卡片字段）；首次挤出旧历史时转入 summarizeContext。" },
+          { id: "a_sum", label: "summarizeContext -> summarizeHistory", sub: "src/harness/agent/agent.service.ts", line: 191, group: "agent", detail: "首次发现历史被移出窗口时，调用 prepareHistorySummary 与 summarizeHistory 压缩为 ≤900 字节中文检查点摘要（失败自动降级沿用原输入）。" },
+          { id: "g_call", label: "2. callModel -> generateDeepSeekText", sub: "src/harness/agent/agent.service.ts", line: 241, group: "gateway", detail: "递增 modelCallCount，经 RunTrace.recordModelCall 调 DeepSeek 流式接口；实时 emit('text_delta')，流结束记录输入体积与 Token 用量。" },
+          { id: "a_limit", label: "3. 上限检查 (≤5) + appendAssistantTurn", sub: "src/harness/agent/agent.service.ts", line: 109, group: "agent", detail: "整批检查累计工具调用数（超 5 次整批拦截返回 stopped）；未超限时调用 appendAssistantTurn 分段合并 assistantText 并挂载终态卡片。" },
+          { id: "a_res", label: "finishTurn -> buildTurnResult", sub: "src/harness/agent/agent.service.ts", line: 342, group: "agent", detail: "汇总 AgentRunResult（合并后文本、草案卡、素材卡、模型/工具统计）、待保存 newMessages 以及相对上一轮推进过的 checkpoint。" },
+          { id: "a_tool", label: "4. runToolBatch -> executeToolCall", sub: "src/harness/agent/agent.service.ts", line: 279, group: "agent", detail: "重算可回查边界 archivedCount，逐个执行工具写入 newMessages；命中 search_user_assets 时经 reportAssetCards 实时 emit('ui_block')。" },
+          { id: "s_append", label: "SessionService.appendMessages (事务提交)", sub: "src/harness/session/session.service.ts", line: 345, group: "session", detail: "排他锁锁住会话行，核对最新序号 === expectedLastSequence（否则抛 409 触发流内 failed），写入消息、首轮自动标题、检查点与终态 Trace，最后发 completed。" }
+        ],
+        edges: [
+          { from: "s_ctrl", to: "s_lock" },
+          { from: "s_lock", to: "s_prep" },
+          { from: "s_prep", to: "s_trace_init" },
+          { from: "s_trace_init", to: "a_entry" },
+          { from: "a_entry", to: "a_ctx" },
+          { from: "a_ctx", to: "a_sum", note: "首次挤出旧历史" },
+          { from: "a_sum", to: "g_call" },
+          { from: "a_ctx", to: "g_call", note: "无需新摘要" },
+          { from: "g_call", to: "a_limit" },
+          { from: "a_limit", to: "a_res", note: "无工具调用 或 超限停止" },
+          { from: "a_limit", to: "a_tool", note: "有 tool_calls 且未超限" },
+          { from: "a_tool", to: "a_ctx", note: "回填工具结果进入下一跳输入装配", isLoop: true },
+          { from: "a_res", to: "s_append" }
+        ]
+      },
+      {
+        id: "tools-dispatch",
+        title: "3. 三大工具派发与双卡片生成链路",
+        direction: "TB",
+        summary: "buildTurnRegistry 按轮装配工具集，runToolBatch -> executeToolCall 统一派发执行，分别产出素材画廊（uiBlocks）与可编辑分镜建议卡（storyboardProposal）。",
+        nodes: [
+          { id: "t_batch", label: "AgentService.runToolBatch", sub: "src/harness/agent/agent.service.ts", line: 279, group: "agent", detail: "计算 archivedCount 归档上界，遍历本批 toolCalls 交由 RunTrace.recordToolCall 计时并把结果追加进 turn.newMessages。" },
+          { id: "t_exec", label: "AgentService.executeToolCall", sub: "src/harness/agent/agent.service.ts", line: 366, group: "agent", detail: "JSON.parse 解析模型生成的参数字符串；非法 JSON 不中断运行，返回 status:'blocked' 让模型自行修正（计入一次额度）。" },
+          { id: "t_reg", label: "ToolRegistryService.execute", sub: "src/tools/tool-registry.service.ts", line: 27, group: "agent", detail: "由 buildTurnRegistry -> withAdditionalTools 在本轮组合全局工具与会话上下文工具，按函数名精确路由。" },
+          { id: "t_s_tool", label: "SearchUserAssetsTool.execute", sub: "src/tools/search-user-assets.tool.ts", line: 34, group: "assets", detail: "校验参数仅含非空 query 字符串；严禁模型传 userId，而是从可信 ToolExecutionContext 读取 userId。" },
+          { id: "t_s_svc", label: "AssetsService.searchAssets -> withUrl", sub: "src/assets/assets.service.ts", line: 61, group: "assets", detail: "查询当前用户名称或描述匹配的最近 10 条资产，buildAssetUrl 编码生成 HTTPS CDN 地址。" },
+          { id: "t_s_ui", label: "reportAssetCards -> extractAssetCardItems", sub: "src/harness/agent/agent.service.ts", line: 319, group: "agent", detail: "提取有效图片/视频并写入 turn.matchedAssets 去重，新增命中时立即 emit('ui_block')，终态由 currentUiBlocks 落库。" },
+          { id: "t_p_tool", label: "proposeStoryboardTool.execute", sub: "src/tools/propose-storyboard.tool.ts", line: 38, group: "projects", detail: "仅项目会话注册：无选镜时校验整份草案（kind:'storyboard'），有选镜时合并单镜修改（kind:'shot'），写入 turn.proposal。" },
+          { id: "t_p_val", label: "readStoryboardDraft / readShotContent", sub: "src/domain/validate-storyboard.ts", line: 49, group: "projects", detail: "校验剧名、梗概、剧本、场景、画面、对白与视频提示词完整性；新草案禁止模型伪造 shotId 或 assetIds。" },
+          { id: "t_r_tool", label: "readSessionHistory", sub: "src/harness/agent/history-recall.ts", line: 27, group: "agent", detail: "仅在有历史消息时注册：在 history.slice(0, turn.archivedCount) 归档范围内按关键词与 beforeSequence 逆序回查原话。" }
+        ],
+        edges: [
+          { from: "t_batch", to: "t_exec" },
+          { from: "t_exec", to: "t_reg" },
+          { from: "t_reg", to: "t_s_tool", note: "search_user_assets" },
+          { from: "t_s_tool", to: "t_s_svc" },
+          { from: "t_s_svc", to: "t_s_ui" },
+          { from: "t_reg", to: "t_p_tool", note: "propose_storyboard" },
+          { from: "t_p_tool", to: "t_p_val" },
+          { from: "t_reg", to: "t_r_tool", note: "read_session_history" }
+        ]
+      },
+      {
+        id: "storyboard-save-confirm",
+        title: "4. 分镜版本保存（乐观锁）与生成确认（幂等）",
+        direction: "TB",
+        summary: "从对话建议采用到编辑区 → expectedVersion 串行排他锁保存新版本 → confirmationId 幂等记录生成范围与 MiniMax-H3 模型 → 历史版本快照回查。",
+        nodes: [
+          { id: "v_apply", label: "Workspace.apply -> commitProposal", sub: "web/src/components/Workspace.tsx", line: 255, group: "web", detail: "校验建议卡 baseVersion === 当前版本；有未保存修改或已有剧本时弹出暗色 Dialog 确认，确认后写入本地草稿。" },
+          { id: "v_save_ui", label: "Workspace.save + forSave", sub: "web/src/components/Workspace.tsx", line: 221, group: "web", detail: "剥离前端渲染 key，POST /api/storyboards/save 提交 { projectId, expectedVersion, storyboard }。" },
+          { id: "v_save_svc", label: "StoryboardsService.saveVersion", sub: "src/projects/storyboards.service.ts", line: 66, group: "projects", detail: "pessimistic_write 排他锁锁住项目 → 比对 expectedVersion（不一致抛 409）→ 校验已有 shotId 或生成新 UUID → 校验全部 assetIds 归属当前用户 → 插入 version+1。" },
+          { id: "v_conflict", label: "409 冲突保留副本并合并", sub: "web/src/components/Workspace.tsx", line: 242, group: "web", detail: "若另一标签页已抢先保存，自动 GET /storyboards/latest 拉回新版，用户可一键载入最新版并将本地稿留作对照副本。" },
+          { id: "v_cfm_ui", label: "ConfirmationPanel.confirm", sub: "web/src/components/Confirmation.tsx", line: 38, group: "web", detail: "按 {version, shotIds, model} 签名在 sessionStorage 缓存 confirmationId（防断网重试重复建单），POST /api/storyboards/confirm。" },
+          { id: "v_cfm_svc", label: "StoryboardsService.confirmGeneration", sub: "src/projects/storyboards.service.ts", line: 99, group: "projects", detail: "排他锁查 confirmationId：同参数重试直接返回原记录（幂等），篡改参数抛 409；新确认按分镜顺序排列 shotIds 落库。" },
+          { id: "v_inspect", label: "ConfirmationPanel.inspect -> getVersion", sub: "src/projects/storyboards.service.ts", line: 38, group: "projects", detail: "GET /api/storyboards/version?projectId=...&version=... 读取确认当刻的不可变版本快照，后续改分镜不影响已确认记录。" }
+        ],
+        edges: [
+          { from: "v_apply", to: "v_save_ui" },
+          { from: "v_save_ui", to: "v_save_svc" },
+          { from: "v_save_svc", to: "v_conflict", note: "并发版本落后 (409)" },
+          { from: "v_save_svc", to: "v_cfm_ui", note: "保存成功 (200)" },
+          { from: "v_cfm_ui", to: "v_cfm_svc" },
+          { from: "v_cfm_svc", to: "v_inspect" }
+        ]
+      },
+      {
+        id: "assets-cos-sts",
+        title: "5. 素材直传、STS 签发与视频归档链路",
+        direction: "TB",
+        summary: "用户上传图片或任务归档生成视频 → 二进制头魔数检验 → 腾讯云 STS 临时凭证缓存 → COS 分块上传 → MySQL 登记与孤儿对象补偿删除。",
+        nodes: [
+          { id: "c_ui", label: "AssetLibraryView.handleUpload -> uploadAsset", sub: "web/src/components/Assets.tsx", line: 157, group: "web", detail: "构造 multipart/form-data 发送 POST /api/assets/upload。" },
+          { id: "c_ctrl", label: "AssetsController.upload", sub: "src/assets/assets.controller.ts", line: 43, group: "assets", detail: "FileInterceptor 限制单文件 20MB 写入 os.tmpdir()，转交 AssetsService.uploadImage。" },
+          { id: "c_img", label: "AssetsService.uploadImage -> readImageFormat", sub: "src/assets/assets.service.ts", line: 89, group: "assets", detail: "readHeader 读取前 16 字节识别真实 jpg/png/webp/gif（防 SVG 伪装），finally 确保删除本地临时文件。" },
+          { id: "c_vid", label: "archiveGeneratedVideo -> storeGeneratedVideo", sub: "src/assets/assets.service.ts", line: 107, group: "assets", detail: "第 11 课视频产物归档入口：activeVideoArchives 内存防并发重入 + 查库幂等 + requireMp4 校验 ftyp 容器头。" },
+          { id: "c_store", label: "AssetsService.storeAsset", sub: "src/assets/assets.service.ts", line: 151, group: "assets", detail: "先传 COS `short-drama/...` 再 insert MySQL；若 DB 报错且确认无记录，调 deleteFile 删掉孤儿 COS 文件。" },
+          { id: "c_cos", label: "CosStorageService.uploadFile -> withClient", sub: "src/assets/cos-storage.service.ts", line: 11, group: "assets", detail: "SliceSize 设为 5MiB（大视频自动分块上传），通过 getAuthorization 动态获取 STS 凭证。" },
+          { id: "c_sts", label: "CosStsService.credentials -> requestCredentials", sub: "src/assets/cos-sts.service.ts", line: 15, group: "assets", detail: "内存缓存 1 小时凭证（提前 120s 刷新、并发合并 pending），向腾讯云 STS 申请仅限 short-drama/* 的最小权限。" }
+        ],
+        edges: [
+          { from: "c_ui", to: "c_ctrl" },
+          { from: "c_ctrl", to: "c_img" },
+          { from: "c_img", to: "c_store" },
+          { from: "c_vid", to: "c_store" },
+          { from: "c_store", to: "c_cos" },
+          { from: "c_cos", to: "c_sts" }
+        ]
+      },
+      {
+        id: "auth-and-cascade-delete",
+        title: "6. 登录鉴权、会话管理与项目级联删除",
+        direction: "TB",
+        summary: "scrypt 密码校验与哈希 Token 签发 → 会话重命名/置顶原位更新 → 无物理外键下的会话单删与项目全量级联事务删除。",
+        nodes: [
+          { id: "d_login", label: "AuthController.login -> AuthService.login", sub: "src/auth/auth.service.ts", line: 20, group: "auth", detail: "verifyPassword 常量时间校验（用户不存在也执行空算防枚举），生成 64 位随机 hex Token，仅存 SHA-256 tokenHash。" },
+          { id: "d_patch", label: "renameSession / pinSession -> applySessionPatch", sub: "src/harness/session/session.service.ts", line: 168, group: "session", detail: "POST /sessions/rename 与 /pin：事务排他锁校验归属后更新字段，显式保持 updatedAt 原值不变以免打乱活跃排序。" },
+          { id: "d_sdel", label: "SessionService.deleteSession", sub: "src/harness/session/session.service.ts", line: 214, group: "session", detail: "POST /sessions/delete：检查 ActiveSessionsService.isRunning（运行中抛 409），单事务按序删 SessionMessage -> AgentRunRecord -> Session。" },
+          { id: "d_pdel", label: "ProjectsService.deleteProject", sub: "src/projects/projects.service.ts", line: 51, group: "projects", detail: "POST /projects/delete：排他锁锁住项目与旗下全部会话 → 任一会话运行中抛 409 → 按序删消息、运行记录、会话、生成确认、分镜版本与项目，保留跨项目共享的个人 Asset。" },
+          { id: "d_cache", label: "purgeProjectCache", sub: "web/src/components/Workspace.tsx", line: 23, group: "web", detail: "清理浏览器 sessionStorage 中该项目对应的 draft、session、confirm 缓存键。" }
+        ],
+        edges: [
+          { from: "d_login", to: "d_patch" },
+          { from: "d_login", to: "d_sdel" },
+          { from: "d_login", to: "d_pdel" },
+          { from: "d_pdel", to: "d_cache" }
+        ]
+      }
+    ];
+
+    const ALL_FUNCTIONS = [
+      // Web 前端工作台
+      { group: "web", fn: "request(token, path, method, data, signal)", file: "web/src/api.ts", line: 14, lesson: "L10.3", role: "底层 fetch('/api'+path)，注入 Bearer Token，401 派发 auth-expired 事件，非 2xx 抛 ApiError", callers: ["api", "uploadAsset", "streamTurn"], callees: ["fetch"] },
+      { group: "web", fn: "api<T>(token, path, method, data, signal)", file: "web/src/api.ts", line: 34, lesson: "L10.3", role: "通用 JSON 请求封装，处理 204 或解析 JSON 响应", callers: ["App", "LoginPage", "ProjectList", "Workspace", "Chat", "Assets", "ConfirmationPanel"], callees: ["request"] },
+      { group: "web", fn: "uploadAsset(token, name, file, signal)", file: "web/src/api.ts", line: 46, lesson: "L10.3", role: "组装 FormData 调用 POST /api/assets/upload 上传本地参考图", callers: ["AssetLibraryView.handleUpload"], callees: ["request"] },
+      { group: "web", fn: "streamTurn(token, sessionId, data, signal, receive)", file: "web/src/api.ts", line: 60, lesson: "L09/L10.3", role: "调用 POST /api/sessions/stream，流式按空行切分 SSE 帧并核对 sessionId/runId", callers: ["Thread.send"], callees: ["request", "EventSourceParserStream", "receive"] },
+      { group: "web", fn: "errorText(error)", file: "web/src/api.ts", line: 96, lesson: "L10.3", role: "提取异常对象的用户可读提示文案", callers: ["全站前端组件 catch"], callees: [] },
+      { group: "web", fn: "readAuth(includeExpired) / route()", file: "web/src/App.tsx", line: 13, lesson: "L10.3", role: "读取校验 localStorage 登录态、从 pathname 解析当前 projectId", callers: ["App"], callees: [] },
+      { group: "web", fn: "App() / navigate(id) / clear() / logout()", file: "web/src/App.tsx", line: 28, lesson: "L10.3", role: "根组件：路由切换、跨标签页登录同步、POST /auth/logout 退出清理", callers: ["web/src/main.tsx"], callees: ["readAuth", "route", "api", "LoginPage", "ProjectList", "Workspace"] },
+      { group: "web", fn: "LoginPage / submit(e)", file: "web/src/App.tsx", line: 119, lesson: "L10.3", role: "登录页面与 POST /api/auth/login 提交", callers: ["App"], callees: ["api", "Brand", "Slate"] },
+      { group: "web", fn: "ProjectList / create(e) / confirmDelete()", file: "web/src/App.tsx", line: 194, lesson: "L10.3", role: "项目大厅：GET /projects/list、POST /projects/create、POST /projects/delete 与个人素材库弹窗", callers: ["App"], callees: ["api", "purgeProjectCache", "AssetLibraryView", "Dialog"] },
+      { group: "web", fn: "purgeProjectCache / sortSessions / readDraft / blank", file: "web/src/components/Workspace.tsx", line: 23, lesson: "L10.3", role: "清理项目缓存、置顶优先会话排序、读取本地草稿与初始化空分镜", callers: ["ProjectList", "Workspace"], callees: ["editable"] },
+      { group: "web", fn: "Workspace() [含 change / select / createSession / renameSession / pinSession / removeSession / syncSessionName / removeProject]", file: "web/src/components/Workspace.tsx", line: 51, lesson: "L10.3", role: "三段式导播台主控：四路并发拉取初始数据，协调编辑区、即梦式会话侧栏与项目删除", callers: ["App"], callees: ["api", "StudioSplit", "Editor", "AssetLibraryView", "Chat", "ConfirmationPanel", "Dialog"] },
+      { group: "web", fn: "Workspace.save() / apply(proposal) / commitProposal(proposal)", file: "web/src/components/Workspace.tsx", line: 221, lesson: "L10.3", role: "POST /storyboards/save 版本保存与 409 冲突拉新合并；采用建议卡前弹暗色 Dialog 二次确认", callers: ["Workspace 顶栏", "Thread 建议卡"], callees: ["forSave", "api", "editable", "change"] },
+      { group: "web", fn: "StudioSplit / resize(value)", file: "web/src/components/StudioSplit.tsx", line: 7, lesson: "L10.3", role: "双栏常驻可拖拽/键盘调节宽度布局容器（34%–62%）", callers: ["Workspace"], callees: [] },
+      { group: "web", fn: "editable(board) / forSave(draft) / Editor (update, move, appendShot)", file: "web/src/components/Editor.tsx", line: 9, lesson: "L10.3", role: "注入/剥离本地 React key，管理剧本编辑舱、16:9 宫格/精修分镜卡片、排序增删与引用单镜", callers: ["Workspace"], callees: ["ShotFramePreview", "AssetChip", "AssetPicker"] },
+      { group: "web", fn: "Preview / ShotFramePreview / AssetChip / AssetLibraryView (onFileChange, handleUpload) / AssetPicker", file: "web/src/components/Assets.tsx", line: 7, lesson: "L10.3", role: "GET /assets/detail 预览缩略图、GET /assets/search 检索与直传 COS 面板", callers: ["ProjectList", "Workspace", "Editor"], callees: ["api", "uploadAsset", "Dialog"] },
+      { group: "web", fn: "ConfirmationPanel / confirm() / inspect(record)", file: "web/src/components/Confirmation.tsx", line: 9, lesson: "L10.3", role: "生成前确认（默认 MiniMax-H3）：复用幂等 confirmationId 调 POST /storyboards/confirm，回查历史版本快照", callers: ["Workspace"], callees: ["api", "Dialog"] },
+      { group: "web", fn: "Chat (handleBusyChange, openMenu, startRename, commitRename) / appendAssistantSegment / InlineBold / LinkedText", file: "web/src/components/Chat.tsx", line: 67, lesson: "L10.3", role: "可折叠会话侧栏、多会话 hidden 保活池、运行中转圈指示器、多跳段落合并与富文本链接/加粗渲染", callers: ["Workspace"], callees: ["Thread", "renameSession", "pinSession", "deleteSession"] },
+      { group: "web", fn: "Thread / trace(runId) / send(e) / update / failed", file: "web/src/components/Chat.tsx", line: 440, lesson: "L09/L10.3", role: "单会话独立流式对话管理：GET /sessions/messages、GET /sessions/run 查轨迹、消费全部 SSE 事件并按 modelCallNumber 分段追加文本", callers: ["Chat"], callees: ["api", "streamTurn", "appendAssistantSegment", "cleanMessageTextForUiBlocks", "ChatUiBlockRenderer", "LinkedText"] },
+      { group: "web", fn: "cleanMessageTextForUiBlocks / ChatUiBlockRenderer / ChatAssetGallery / GalleryCard", file: "web/src/components/ChatUiBlocks.tsx", line: 7, lesson: "L10.3", role: "A2UI 受控组件分发器与对话内图片/视频画廊卡片（去重裸 URL、裂图优雅占位、点击灯箱预览）", callers: ["Thread"], callees: ["Dialog"] },
+      { group: "web", fn: "Dialog / Brand / Slate / Icons (Svg + 15 Icon*)", file: "web/src/components/Dialog.tsx", line: 3, lesson: "L10.3", role: "全站统一原生 <dialog> 暗色模态框、品牌标识、场记板插画与矢量图标集", callers: ["全站前端组件"], callees: [] },
+
+      // 会话、SSE 与运行轨迹
+      { group: "session", fn: "SessionController.listSessions / createSession / renameSession / pinSession / deleteSession", file: "src/harness/session/session.controller.ts", line: 29, lesson: "L06/L10", role: "承载 /api/sessions 下 list、create、rename、pin、delete 五个会话管理接口", callers: ["Workspace"], callees: ["SessionService.*"] },
+      { group: "session", fn: "SessionController.getMessages / getRun / streamMessage / submitMessage", file: "src/harness/session/session.controller.ts", line: 88, lesson: "L06/L09", role: "承载历史消息读取、Trace 查询、SSE 流式推流（含断线 abort 与 drain 背压）及同步对话接口", callers: ["Thread", "streamTurn"], callees: ["SessionService.getProjectChatMessages / getRun / replyToMessage"] },
+      { group: "session", fn: "buildRunOutcome / deriveSessionTitle / parseSessionName / parseSessionPinned", file: "src/harness/session/session.service.ts", line: 53, lesson: "L09/L10", role: "构造运行结束记录、截取首轮提问前 20 字自动命名、校验改名与置顶参数", callers: ["SessionService 内部"], callees: [] },
+      { group: "session", fn: "SessionService.create / listProjectSessions / renameSession / pinSession -> applySessionPatch / deleteSession", file: "src/harness/session/session.service.ts", line: 100, lesson: "L06/L10", role: "事务校验归属创建会话、置顶优先查询、原位改名/置顶（保留 updatedAt）、运行态检查后级联删除单会话", callers: ["SessionController"], callees: ["ProjectsService.getOwnedProject", "ActiveSessionsService.isRunning"] },
+      { group: "session", fn: "SessionService.getProjectChatMessages(userId, projectId, sessionId)", file: "src/harness/session/session.service.ts", line: 244, lesson: "L10.1", role: "读取历史消息，将同一轮带 toolCalls 的前置说明与终态回答按段落合并，并兼容回填 asset_gallery 卡片", callers: ["SessionController.getMessages"], callees: ["ProjectsService.getOwnedProject", "findOwnedSession", "loadMessageRows", "appendAssistantSegment", "extractAssetCardItems"] },
+      { group: "session", fn: "SessionService.appendMessages(...) / getRun / findOwnedSession / loadMessageRows", file: "src/harness/session/session.service.ts", line: 345, lesson: "L06/L09", role: "排他锁校验 expectedLastSequence 防并发覆盖，原子落库消息、自动标题、摘要检查点与运行记录", callers: ["SessionService.replyToMessage", "SessionController.getRun"], callees: ["deriveSessionTitle"] },
+      { group: "session", fn: "SessionService.replyToMessage(...)", file: "src/harness/session/session.service.ts", line: 432, lesson: "L06/L09/L10", role: "会话运行总编排：获取会话锁 → 准备选镜上下文 → 写 running 发 started → 调 AgentService → 落库发终态事件", callers: ["SessionController.streamMessage / submitMessage"], callees: ["ActiveSessionsService.tryAcquire/release", "StoryboardsService.prepareTurn", "RunTrace", "AgentService.runWithHistory", "appendMessages", "failureMessage"] },
+      { group: "session", fn: "failureMessage(error) / RunTrace.recordModelCall / recordToolCall / measure", file: "src/harness/trace/run-trace.ts", line: 41, lesson: "L05/L09", role: "异常脱敏转换，统一记录模型/摘要/工具每一步耗时、状态与 Token 用量并推送 step 事件", callers: ["AgentService.summarizeContext / callModel / runToolBatch", "SessionService.replyToMessage"], callees: ["trace.emit"] },
+
+      // Agent Loop、上下文与工具
+      { group: "agent", fn: "AgentController.runOnce -> AgentService.runOnce", file: "src/harness/agent/agent.controller.ts", line: 14, lesson: "L05", role: "POST /api/agent/run-once 无历史单轮运行入口", callers: ["HTTP POST /api/agent/run-once"], callees: ["AgentService.runWithHistory"] },
+      { group: "agent", fn: "AgentService.runWithHistory(...) [含 TurnState / TurnResult]", file: "src/harness/agent/agent.service.ts", line: 70, lesson: "L05/L07/L08/L10", role: "ReAct 四步主循环总控：初始化 TurnState 与工具注册表 → 1. 装配输入 → 2. 调模型 → 3. 5 次上限检查与记录回复 → 4. 批量执行工具", callers: ["SessionService.replyToMessage", "AgentService.runOnce"], callees: ["getDeepSeekContextConfig", "buildTurnRegistry", "prepareTurnInput", "callModel", "appendAssistantSegment", "appendAssistantTurn", "runToolBatch", "buildTurnResult"] },
+      { group: "agent", fn: "AgentService.buildTurnRegistry(history, inputBudgetTokens, storyboard, turn)", file: "src/harness/agent/agent.service.ts", line: 136, lesson: "L07/L10.2", role: "按轮派生工具注册器：有历史时注入 read_session_history（动态读取 turn.archivedCount），项目会话注入 proposeStoryboardTool", callers: ["AgentService.runWithHistory"], callees: ["ToolRegistryService.withAdditionalTools", "readSessionHistory", "proposeStoryboardTool"] },
+      { group: "agent", fn: "AgentService.prepareTurnInput(...) / summarizeContext(...)", file: "src/harness/agent/agent.service.ts", line: 161, lesson: "L06/L07", role: "按当前检查点过滤历史并组装预算内输入；首次挤出旧历史时压缩生成新检查点并切换输入（失败自动降级）", callers: ["AgentService.runWithHistory"], callees: ["buildModelInput", "prepareHistorySummary", "RunTrace.recordModelCall", "summarizeHistory"] },
+      { group: "agent", fn: "AgentService.callModel / appendAssistantTurn / currentUiBlocks / buildTurnResult", file: "src/harness/agent/agent.service.ts", line: 241, lesson: "L05/L09/L10", role: "发起流式模型请求转发 text_delta 与体积日志；分段合并 assistantText、挂载终态草案卡与素材卡并组装 TurnResult", callers: ["AgentService.runWithHistory"], callees: ["RunTrace.recordModelCall", "generateDeepSeekText", "appendAssistantSegment"] },
+      { group: "agent", fn: "AgentService.runToolBatch / reportAssetCards / executeToolCall", file: "src/harness/agent/agent.service.ts", line: 279, lesson: "L05/L08/L10", role: "重算归档回查边界 archivedCount，逐个解析 JSON 参数（非法 JSON 返回 blocked 计入额度）执行工具，命中素材搜索即时推送去重 ui_block", callers: ["AgentService.runWithHistory"], callees: ["RunTrace.recordToolCall", "ToolRegistryService.execute", "extractAssetCardItems", "trace.emit"] },
+      { group: "agent", fn: "appendAssistantSegment(accumulated, segment) / extractAssetCardItems(result)", file: "src/harness/types.ts", line: 9, lesson: "L10", role: "将同一轮多次模型调用的非空回答按段落合并；从搜索工具结果安全提取去重后的图片/视频卡片条目", callers: ["AgentService.*", "SessionService.getProjectChatMessages"], callees: [] },
+      { group: "agent", fn: "buildModelInput / compactToolMessages / compactAssetSearchResult / keepAssetSearchCandidates / parseAssetSearchResult / hasAssetTags / hasAssetIdentity / jsonBytes", file: "src/harness/agent/context.ts", line: 12, lesson: "L06/L07/L10", role: "提取公共标签压缩工具结果、注入选镜资料、剥离前端卡片字段、超限抛 413、按整轮 user 边界裁剪历史", callers: ["AgentService.prepareTurnInput / summarizeContext"], callees: ["estimateDeepSeekInputTokens", "estimateDeepSeekMessageTokens", "checkpointMessage"] },
+      { group: "agent", fn: "checkpointMessage / splitHistoryTurns / isVisibleMessage / prepareHistorySummary / summarizeHistory", file: "src/harness/agent/compaction.ts", line: 16, lesson: "L07", role: "切分移出窗口的完整轮次并调用模型压缩为 ≤900 字节的中文摘要检查点", callers: ["buildModelInput", "AgentService.summarizeContext", "readSessionHistory"], callees: ["generateDeepSeekText", "estimateDeepSeekInputTokens", "estimateDeepSeekMessageTokens"] },
+      { group: "agent", fn: "readSessionHistory(archive, input, inputBudgetTokens)", file: "src/harness/agent/history-recall.ts", line: 27, lesson: "L07", role: "在已移出窗口的归档历史中按关键词与序号向前翻查原话，核对候选展示顺序", callers: ["AgentService.buildTurnRegistry 动态工具"], callees: ["splitHistoryTurns", "isVisibleMessage"] },
+      { group: "agent", fn: "ToolRegistryService.withAdditionalTools / getDefinitions / execute", file: "src/tools/tool-registry.service.ts", line: 19, lesson: "L04/L10", role: "维护不重名工具映射表，派生轮次临时工具集并按名路由执行", callers: ["AgentService.buildTurnRegistry / executeToolCall"], callees: ["SearchUserAssetsTool.execute", "proposeStoryboardTool.execute", "readSessionHistory"] },
+      { group: "agent", fn: "SearchUserAssetsTool.execute(input, context)", file: "src/tools/search-user-assets.tool.ts", line: 34, lesson: "L04", role: "校验单字段 query，使用可信 context.userId 调用 AssetsService.searchAssets", callers: ["ToolRegistryService.execute"], callees: ["AssetsService.searchAssets"] },
+      { group: "agent", fn: "proposeStoryboardTool(context, onProposal) -> execute(input)", file: "src/tools/propose-storyboard.tool.ts", line: 26, lesson: "L10.2", role: "项目会话专属工具：校验单镜或整份分镜草案并经 onProposal 挂起建议卡", callers: ["AgentService.buildTurnRegistry"], callees: ["readShotContent", "readStoryboardDraft"] },
+
+      // DeepSeek 网关与基础设施
+      { group: "gateway", fn: "bootstrap() / required(name) / createDatabaseOptions()", file: "src/main.ts", line: 6, lesson: "L04", role: "启动 Nest 服务挂载 /api 前缀；校验环境变量并构造 TypeORM MySQL 连接池参数", callers: ["Node 进程入口", "DatabaseModule"], callees: ["NestFactory.create"] },
+      { group: "gateway", fn: "HealthController.getHealth / getDatabaseHealth -> HealthService.getStatus / getDatabaseStatus", file: "src/health/health.service.ts", line: 10, lesson: "L04", role: "提供进程存活探针与 MySQL SELECT 1 连通性检查", callers: ["GET /api/health", "GET /api/health/database"], callees: ["DataSource.query"] },
+      { group: "gateway", fn: "createHttpClient -> postResponse / post", file: "src/request/http-client.ts", line: 7, lesson: "L02/L09", role: "公共 HTTP 客户端：合并外部取消信号与 30s 超时，非 2xx 抛状态码错误", callers: ["generateDeepSeekText"], callees: ["fetch"] },
+      { group: "gateway", fn: "getDeepSeekContextConfig() / loadDeepSeekConfig()", file: "src/config/deepseek-context.ts", line: 42, lesson: "L02/L07", role: "计算 normal/lesson 档位输入预算与输出上限；读取校验 DeepSeek 密钥与地址", callers: ["AgentService.runWithHistory", "generateDeepSeekText"], callees: [] },
+      { group: "gateway", fn: "toDeepSeekMessage / toDeepSeekInput / estimateDeepSeekInputTokens / estimateDeepSeekMessageTokens", file: "src/gateway/text/deepseek.ts", line: 30, lesson: "L02/L05/L07", role: "内部消息转 DeepSeek 协议（过滤空 toolCalls 防 HTTP 400）及 UTF-8 字节级预算估算", callers: ["buildModelInput", "prepareHistorySummary", "summarizeHistory", "generateDeepSeekText"], callees: [] },
+      { group: "gateway", fn: "generateDeepSeekText(request, options)", file: "src/gateway/text/deepseek.ts", line: 90, lesson: "L02/L09", role: "DeepSeek 统一请求入口：支持流式增量回调与非流式 JSON 请求", callers: ["AgentService.callModel", "summarizeHistory"], callees: ["loadDeepSeekConfig", "getDeepSeekContextConfig", "createHttpClient", "toDeepSeekInput", "readDeepSeekStream", "modelUsage"] },
+      { group: "gateway", fn: "modelUsage / readDeepSeekStream(response, onTextDelta)", file: "src/gateway/text/deepseek-stream.ts", line: 8, lesson: "L09", role: "流式解码 UTF-8 增量文本实时触发 onTextDelta，按 index 拼装完整 tool_calls 并校验 [DONE]", callers: ["generateDeepSeekText"], callees: ["EventSourceParserStream", "onTextDelta"] },
+
+      // 项目、分镜与确认
+      { group: "projects", fn: "ActiveSessionsService.key / tryAcquire / release / isRunning", file: "src/projects/active-sessions.service.ts", line: 8, lesson: "L09/L10", role: "登记进程内运行中会话，供对话防并发重入及删除会话/项目前做运行态保护", callers: ["SessionService", "ProjectsService.deleteProject"], callees: [] },
+      { group: "projects", fn: "ProjectsController.listProjects / getProject / createProject / deleteProject", file: "src/projects/projects.controller.ts", line: 15, lesson: "L10.1", role: "承载 /api/projects 下 list、detail、create、delete 四个接口", callers: ["ProjectList", "Workspace"], callees: ["ProjectsService.*"] },
+      { group: "projects", fn: "ProjectsService.createProject / listProjects / getOwnedProject / deleteProject", file: "src/projects/projects.service.ts", line: 21, lesson: "L10", role: "项目创建、列表、带事务悲观锁的归属核验，以及清理分镜/确认/会话/消息的单事务级联删除", callers: ["ProjectsController", "SessionService", "StoryboardsService"], callees: ["ActiveSessionsService.isRunning"] },
+      { group: "projects", fn: "readObject / text / readAction / validateStoryboard / readUuid / readIds / readShotContent / readStoryboardDraft", file: "src/domain/validate-storyboard.ts", line: 4, lesson: "L03/L10.2", role: "领域纯校验函数集：规范化小写 UUID、数组去重、校验镜头四要素与完整分镜草案", callers: ["proposeStoryboardTool", "StoryboardsService"], callees: [] },
+      { group: "projects", fn: "StoryboardsController.getLatest / getVersion / saveVersion / confirm / listConfirmations / getConfirmation", file: "src/projects/storyboards.controller.ts", line: 15, lesson: "L10.2", role: "承载 /api/storyboards 下最新草案、历史版本、保存版本、提交确认与查询确认六个接口", callers: ["Workspace", "ConfirmationPanel"], callees: ["StoryboardsService.*"] },
+      { group: "projects", fn: "readInput / readVersion / StoryboardsService.getLatest / getVersion / prepareTurn / saveVersion / confirmGeneration / listConfirmations / getConfirmation / latestVersion", file: "src/projects/storyboards.service.ts", line: 13, lesson: "L10.2", role: "分镜读取、选镜准备、expectedVersion 乐观锁版本保存（含资产归属校验）及 confirmationId 幂等生成前确认", callers: ["StoryboardsController", "SessionService.replyToMessage"], callees: ["ProjectsService.getOwnedProject", "validate-storyboard.*"] },
+
+      // 素材库与腾讯云 COS
+      { group: "assets", fn: "AssetsController.search / getAsset / upload", file: "src/assets/assets.controller.ts", line: 28, lesson: "L04/L10", role: "承载 GET /assets/search、GET /assets/detail 与 POST /assets/upload", callers: ["Assets.tsx", "uploadAsset"], callees: ["AssetsService.*"] },
+      { group: "assets", fn: "readHeader / readImageFormat / requireMp4", file: "src/assets/asset-file.ts", line: 4, lesson: "L04/L11", role: "读取文件头 16 字节检验真实图片魔数（jpg/png/webp/gif）与 MP4 ftyp 容器头", callers: ["AssetsService.uploadImage / storeGeneratedVideo"], callees: [] },
+      { group: "assets", fn: "CosStsService.credentials / requestCredentials", file: "src/assets/cos-sts.service.ts", line: 15, lesson: "L04", role: "缓存并合并请求腾讯云 STS，签发仅限 short-drama/* 路径的临时上传凭证", callers: ["CosStorageService.withClient"], callees: ["sts.Client.GetFederationToken"] },
+      { group: "assets", fn: "CosStorageService.uploadFile / deleteFile / withClient", file: "src/assets/cos-storage.service.ts", line: 11, lesson: "L04", role: "封装 COS 上传（>5MiB 自动分块）与异常孤儿对象删除", callers: ["AssetsService.storeAsset"], callees: ["CosStsService.credentials"] },
+      { group: "assets", fn: "AssetsService.searchAssets / getAsset / uploadImage / archiveGeneratedVideo / storeGeneratedVideo / storeAsset / checkExistingAsset / readAssetName / removeTemporaryPath / withUrl / buildAssetUrl", file: "src/assets/assets.service.ts", line: 61, lesson: "L04/L10/L11", role: "按用户隔离检索/读取资产、上传图片或幂等归档生成视频、拼接编码 HTTPS CDN 链接", callers: ["AssetsController", "SearchUserAssetsTool"], callees: ["readImageFormat", "requireMp4", "CosStorageService.*"] },
+
+      // 认证与身份守卫
+      { group: "auth", fn: "hashPassword(password) / verifyPassword(password, encoded)", file: "src/auth/password.ts", line: 6, lesson: "L06", role: "16 字节随机盐 scrypt 密码哈希与 timingSafeEqual 常量时间校验", callers: ["create-user.ts", "AuthService.login"], callees: [] },
+      { group: "auth", fn: "tokenHash / AuthService.login / authenticate / logout", file: "src/auth/auth.service.ts", line: 9, lesson: "L06", role: "登录校验签发 64 位 Bearer Token（仅存 SHA-256 哈希）、鉴权反查 userId 及注销清理", callers: ["AuthController", "AuthGuard"], callees: ["verifyPassword"] },
+      { group: "auth", fn: "AuthGuard.canActivate / CurrentUserId() / AuthController.login / logout / main() [create-user.ts]", file: "src/auth/auth.guard.ts", line: 8, lesson: "L06", role: "全局请求身份守卫、@CurrentUserId 装饰器、登录注销路由与命令行账号初始化脚本", callers: ["全站受保护 Controller", "LoginPage", "CLI"], callees: ["AuthService.*"] }
+    ];
+
+    // ===================== 简易分层 DAG 布局计算 =====================
+    function layoutDAG(scenario) {
+      const NODE_W = 264;
+      const NODE_H = 62;
+      const RANK_GAP = 64;
+      const NODE_GAP = 34;
+      const PAD = 44;
+
+      const ids = scenario.nodes.map(n => n.id);
+      const forwardEdges = scenario.edges.filter(e => !e.isLoop);
+      const ranks = new Map(ids.map(id => [id, 0]));
+
+      for (let pass = 0; pass < ids.length; pass++) {
+        for (const e of forwardEdges) {
+          const rFrom = ranks.get(e.from) || 0;
+          const rTo = ranks.get(e.to) || 0;
+          if (rTo <= rFrom) ranks.set(e.to, rFrom + 1);
+        }
+      }
+
+      const layers = new Map();
+      for (const n of scenario.nodes) {
+        const r = ranks.get(n.id) || 0;
+        if (!layers.has(r)) layers.set(r, []);
+        layers.get(r).push(n);
+      }
+
+      const maxCols = Math.max(...Array.from(layers.values()).map(arr => arr.length));
+      const totalW = Math.max(920, maxCols * NODE_W + (maxCols - 1) * NODE_GAP + PAD * 2 + 110);
+      const maxRank = Math.max(...Array.from(layers.keys()));
+      const totalH = (maxRank + 1) * NODE_H + maxRank * RANK_GAP + PAD * 2;
+
+      const positions = new Map();
+      for (const [r, arr] of layers.entries()) {
+        const rowW = arr.length * NODE_W + (arr.length - 1) * NODE_GAP;
+        const startX = (totalW - 70 - rowW) / 2;
+        const y = PAD + r * (NODE_H + RANK_GAP);
+        arr.forEach((node, idx) => {
+          positions.set(node.id, {
+            x: startX + idx * (NODE_W + NODE_GAP),
+            y,
+            w: NODE_W,
+            h: NODE_H
+          });
+        });
+      }
+
+      return { positions, totalW, totalH, NODE_W, NODE_H };
+    }
+
+    // ===================== 状态与交互渲染 =====================
+    let currentScenario = SCENARIOS[0];
+    let selectedNodeId = currentScenario.nodes[0].id;
+    let zoom = 1;
+    let panX = 0;
+    let panY = 0;
+    let currentGroupFilter = "all";
+
+    const svgEl = document.getElementById("dag-svg");
+    const viewportG = document.getElementById("dag-viewport");
+
+    function cursorLink(file, line) {
+      return `cursor://file${WORKSPACE_ROOT}/${file}:${line}:1`;
+    }
+
+    function applyTransform() {
+      viewportG.setAttribute("transform", `translate(${panX}, ${panY}) scale(${zoom})`);
+      document.getElementById("zoom-label").textContent = Math.round(zoom * 100) + "%";
+    }
+
+    function fitToViewport(layout) {
+      const rect = svgEl.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const scaleX = (rect.width - 36) / layout.totalW;
+      const scaleY = (rect.height - 36) / layout.totalH;
+      zoom = Math.max(0.45, Math.min(1.15, Math.min(scaleX, scaleY)));
+      panX = (rect.width - layout.totalW * zoom) / 2;
+      panY = Math.max(14, (rect.height - layout.totalH * zoom) / 2);
+      applyTransform();
+    }
+
+    function updateInspector() {
+      const node = currentScenario.nodes.find(n => n.id === selectedNodeId) || currentScenario.nodes[0];
+      if (!node) return;
+      const gMeta = GROUPS[node.group];
+      const tagEl = document.getElementById("insp-group");
+      tagEl.innerHTML = `<i style="width:8px;height:8px;border-radius:50%;background:${gMeta.color};display:inline-block"></i> ${gMeta.label}`;
+      document.getElementById("insp-title").textContent = node.label;
+      document.getElementById("insp-path").textContent = `${node.sub}:${node.line}`;
+      document.getElementById("insp-desc").textContent = node.detail;
+
+      const incoming = currentScenario.edges
+        .filter(e => e.to === node.id)
+        .map(e => currentScenario.nodes.find(n => n.id === e.from)?.label || e.from);
+      const outgoing = currentScenario.edges
+        .filter(e => e.from === node.id)
+        .map(e => currentScenario.nodes.find(n => n.id === e.to)?.label || e.to);
+
+      document.getElementById("insp-in").innerHTML = incoming.length
+        ? incoming.map(t => `<span class="code-pill">${t}</span>`).join("")
+        : `<span class="code-pill">顶层触发入口</span>`;
+      document.getElementById("insp-out").innerHTML = outgoing.length
+        ? outgoing.map(t => `<span class="code-pill">${t}</span>`).join("")
+        : `<span class="code-pill">链路终点 / 落库响应</span>`;
+
+      document.getElementById("insp-open").href = cursorLink(node.sub, node.line);
+    }
+
+    function renderScenario(shouldFit = false) {
+      document.getElementById("scenario-summary").textContent = currentScenario.summary;
+      const layout = layoutDAG(currentScenario);
+      const { positions, NODE_W, NODE_H } = layout;
+
+      let html = "";
+
+      // Edges
+      for (const edge of currentScenario.edges) {
+        const src = positions.get(edge.from);
+        const tgt = positions.get(edge.to);
+        if (!src || !tgt) continue;
+        const isActive = edge.from === selectedNodeId || edge.to === selectedNodeId;
+
+        let d = "";
+        let lx = 0;
+        let ly = 0;
+        let anchor = "start";
+
+        if (edge.isLoop) {
+          const sx = src.x + NODE_W;
+          const sy = src.y + NODE_H / 2;
+          const tx = tgt.x + NODE_W;
+          const ty = tgt.y + NODE_H / 2;
+          const rightX = Math.max(sx, tx) + 76;
+          d = `M ${sx} ${sy} C ${rightX} ${sy}, ${rightX} ${ty}, ${tx} ${ty}`;
+          lx = rightX - 8;
+          ly = (sy + ty) / 2;
+          anchor = "end";
+        } else {
+          const sx = src.x + NODE_W / 2;
+          const sy = src.y + NODE_H;
+          const tx = tgt.x + NODE_W / 2;
+          const ty = tgt.y;
+          const midY = (sy + ty) / 2;
+          d = `M ${sx} ${sy} C ${sx} ${midY}, ${tx} ${midY}, ${tx} ${ty}`;
+          lx = (sx + tx) / 2 + 8;
+          ly = midY - 4;
+        }
+
+        const stroke = edge.isLoop ? "#a78bfa" : (isActive ? "#eab044" : "#4b566e");
+        const marker = edge.isLoop ? "url(#arrow-loop)" : (isActive ? "url(#arrow-hi)" : "url(#arrow-def)");
+        const dash = edge.isLoop ? `stroke-dasharray="6 4"` : "";
+        const width = isActive || edge.isLoop ? "2" : "1.35";
+
+        html += `<g>
+          <path d="${d}" fill="none" stroke="${stroke}" stroke-width="${width}" ${dash} marker-end="${marker}" />
+          ${edge.note ? `<text x="${lx}" y="${ly}" fill="${edge.isLoop ? '#c4b5fd' : '#9aa6bd'}" font-size="11" text-anchor="${anchor}">${edge.note}</text>` : ""}
+        </g>`;
+      }
+
+      // Nodes
+      for (const node of currentScenario.nodes) {
+        const pos = positions.get(node.id);
+        const color = GROUPS[node.group].color;
+        const active = node.id === selectedNodeId;
+        const title = node.label.length > 31 ? node.label.slice(0, 30) + "…" : node.label;
+        const sub = `${node.sub}:${node.line}`;
+        const subShort = sub.length > 38 ? "…" + sub.slice(-37) : sub;
+
+        html += `<g class="dag-node" data-node-id="${node.id}" transform="translate(${pos.x}, ${pos.y})">
+          <rect class="node-box" width="${NODE_W}" height="${NODE_H}" rx="9"
+            fill="${active ? '#1b2336' : '#121723'}"
+            stroke="${active ? '#eab044' : 'rgba(255,255,255,0.14)'}"
+            stroke-width="${active ? '2.2' : '1.1'}" />
+          <rect x="0" y="11" width="4" height="${NODE_H - 22}" rx="2" fill="${color}" />
+          <text x="14" y="25" fill="#f1f5f9" font-size="12.5" font-weight="600" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">${title}</text>
+          <text x="14" y="45" fill="#828fa8" font-size="11" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">${subShort}</text>
+        </g>`;
+      }
+
+      viewportG.innerHTML = html;
+
+      viewportG.querySelectorAll(".dag-node").forEach(el => {
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          selectedNodeId = el.getAttribute("data-node-id");
+          renderScenario(false);
+          updateInspector();
+        });
+      });
+
+      if (shouldFit) fitToViewport(layout);
+      updateInspector();
+    }
+
+    function renderScenarioTabs() {
+      const container = document.getElementById("scenario-tabs");
+      container.innerHTML = SCENARIOS.map(s =>
+        `<button type="button" class="tab-btn ${s.id === currentScenario.id ? 'active' : ''}" data-sid="${s.id}">${s.title}</button>`
+      ).join("");
+      container.querySelectorAll(".tab-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          currentScenario = SCENARIOS.find(s => s.id === btn.getAttribute("data-sid"));
+          selectedNodeId = currentScenario.nodes[0].id;
+          renderScenarioTabs();
+          renderScenario(true);
+        });
+      });
+    }
+
+    function renderLegend() {
+      document.getElementById("legend-bar").innerHTML = Object.values(GROUPS)
+        .map(g => `<span><i style="background:${g.color}"></i>${g.label}</span>`)
+        .join("");
+    }
+
+    // ===================== 平移与滚轮缩放 =====================
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+
+    svgEl.addEventListener("mousedown", (e) => {
+      if (e.target.closest(".dag-node")) return;
+      isDragging = true;
+      startX = e.clientX - panX;
+      startY = e.clientY - panY;
+      svgEl.classList.add("dragging");
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (!isDragging) return;
+      panX = e.clientX - startX;
+      panY = e.clientY - startY;
+      applyTransform();
+    });
+    window.addEventListener("mouseup", () => {
+      isDragging = false;
+      svgEl.classList.remove("dragging");
+    });
+    svgEl.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      const nextZoom = Math.max(0.35, Math.min(2.4, zoom * factor));
+      const rect = svgEl.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      panX = mx - ((mx - panX) / zoom) * nextZoom;
+      panY = my - ((my - panY) / zoom) * nextZoom;
+      zoom = nextZoom;
+      applyTransform();
+    }, { passive: false });
+
+    document.getElementById("btn-zoom-in").addEventListener("click", () => {
+      zoom = Math.min(2.4, zoom * 1.18);
+      applyTransform();
+    });
+    document.getElementById("btn-zoom-out").addEventListener("click", () => {
+      zoom = Math.max(0.35, zoom / 1.18);
+      applyTransform();
+    });
+    document.getElementById("btn-fit").addEventListener("click", () => {
+      fitToViewport(layoutDAG(currentScenario));
+    });
+    document.getElementById("btn-expand").addEventListener("click", (e) => {
+      const wrap = document.getElementById("stage-wrap");
+      const expanded = wrap.classList.toggle("is-expanded");
+      e.currentTarget.textContent = expanded ? "退出全屏" : "全屏画布";
+      setTimeout(() => fitToViewport(layoutDAG(currentScenario)), 50);
+    });
+
+    // ===================== 函数字典渲染 =====================
+    function renderGroupTabs() {
+      const container = document.getElementById("group-tabs");
+      const allBtn = `<button type="button" class="tab-btn ${currentGroupFilter === 'all' ? 'active' : ''}" data-grp="all">全部模块 (${ALL_FUNCTIONS.length})</button>`;
+      const modBtns = Object.entries(GROUPS).map(([k, v]) => {
+        const cnt = ALL_FUNCTIONS.filter(f => f.group === k).length;
+        return `<button type="button" class="tab-btn ${currentGroupFilter === k ? 'active' : ''}" data-grp="${k}">${v.label} (${cnt})</button>`;
+      }).join("");
+      container.innerHTML = allBtn + modBtns;
+      container.querySelectorAll(".tab-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          currentGroupFilter = btn.getAttribute("data-grp");
+          renderGroupTabs();
+          renderTable();
+        });
+      });
+    }
+
+    function renderTable() {
+      const q = document.getElementById("dict-search").value.trim().toLowerCase();
+      const rows = ALL_FUNCTIONS.filter(item => {
+        if (currentGroupFilter !== "all" && item.group !== currentGroupFilter) return false;
+        if (!q) return true;
+        return (
+          item.fn.toLowerCase().includes(q) ||
+          item.file.toLowerCase().includes(q) ||
+          item.lesson.toLowerCase().includes(q) ||
+          item.role.toLowerCase().includes(q) ||
+          item.callers.some(c => c.toLowerCase().includes(q)) ||
+          item.callees.some(c => c.toLowerCase().includes(q))
+        );
+      });
+
+      document.getElementById("dict-tbody").innerHTML = rows.map(item => {
+        const g = GROUPS[item.group];
+        return `<tr>
+          <td><span class="mod-badge"><i style="background:${g.color}"></i>${g.label}</span></td>
+          <td>
+            <span class="fn-name">${item.fn}</span>
+            <span class="fn-file">${item.file}:${item.line}</span>
+          </td>
+          <td style="font-family:var(--mono);color:var(--text-sec);white-space:nowrap">${item.lesson}</td>
+          <td>${item.role}</td>
+          <td style="color:var(--text-sec)">
+            <div><strong style="color:var(--text)">入：</strong>${item.callers.join(" / ") || "—"}</div>
+            <div style="color:var(--muted)"><strong style="color:var(--text-sec)">出：</strong>${item.callees.join(" → ") || "叶节点"}</div>
+          </td>
+          <td><a class="jump-link" href="${cursorLink(item.file, item.line)}">定位源码</a></td>
+        </tr>`;
+      }).join("");
+    }
+
+    document.getElementById("dict-search").addEventListener("input", renderTable);
+    document.getElementById("stat-flows").textContent = String(SCENARIOS.length);
+    document.getElementById("stat-fns").textContent = String(ALL_FUNCTIONS.length);
+
+    renderLegend();
+    renderScenarioTabs();
+    renderGroupTabs();
+    renderTable();
+    requestAnimationFrame(() => renderScenario(true));
+  </script>
+</body>
+</html>
